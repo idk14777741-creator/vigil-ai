@@ -1,0 +1,13 @@
+# Never ship local state or secrets into the image
+data/
+.env
+.env.*
+!.env.example
+.git/
+.freebuff/
+*.log
+__pycache__/
+*.pyc
+.DS_Store
+docs/
+DEMO.md

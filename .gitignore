@@ -1,0 +1,16 @@
+# VIGIL AI — local state & secrets never enter git
+data/
+.env
+.env.local
+!.env.example
+
+# OS / editor noise
+.DS_Store
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Agent workspace (thread-local, not part of the product)
+.freebuff/

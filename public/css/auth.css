@@ -1,0 +1,9 @@
+/* VIGIL AI — auth extras */
+
+.pw-strength { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.pw-strength .bars { display: flex; gap: 4px; flex: 1; }
+.pw-strength .bar { height: 4px; flex: 1; border-radius: 3px; background: var(--border); transition: background var(--dur-fast) var(--ease-out); }
+.pw-strength .bar.on-1 { background: var(--danger); }
+.pw-strength .bar.on-2 { background: var(--warning); }
+.pw-strength .bar.on-3 { background: var(--success); }
+.pw-strength .pw-label { font-size: 11.5px; font-weight: 600; color: var(--text-3); min-width: 60px; text-align: right; }

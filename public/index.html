@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="VIGIL AI — personnel wellness and operational support. Someone is looking out for you." />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#2F6D5E" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <meta property="og:title" content="VIGIL AI — Personnel Wellness &amp; Operational Support" />
+  <meta property="og:description" content="Shifts, tasks, wellness and support in one calm workspace. Someone is looking out for you." />
+  <meta property="og:type" content="website" />
+  <title>VIGIL AI — Personnel Wellness &amp; Operational Support</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232F6D5E'/%3E%3Cpath d='M16 6l7 3v6c0 5-3.2 8.6-7 11-3.8-2.4-7-6-7-11V9l7-3z' fill='%23fff'/%3E%3Ccircle cx='16' cy='14.5' r='2.6' fill='%232F6D5E'/%3E%3Cpath d='M16 17.5v5' stroke='%232F6D5E' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/tokens.css" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/components.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+  <link rel="stylesheet" href="/css/pages.css" />
+  <link rel="stylesheet" href="/css/auth.css" />
+  <script>
+    // Apply persisted theme before first paint to avoid a flash.
+    (function () {
+      try {
+        var t = localStorage.getItem("vigil-theme") || "system";
+        var dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (e) { /* noop */ }
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#page-content">Skip to main content</a>
+  <div id="app" aria-live="off">
+    <div class="loading-block" style="min-height:100vh; justify-content:center;">
+      <div class="spinner" role="status" aria-label="Loading VIGIL AI"></div>
+      <p class="meta">Starting VIGIL AI…</p>
+    </div>
+  </div>
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <div id="modal-root"></div>
+
+  <script>
+    // Live-mode integration endpoints are injected here as plain config only —
+    // never secrets. Demo mode uses same-origin relative URLs.
+    window.VIGIL_INTEGRATIONS = {
+      apiBase: "",        // e.g. "https://your-project.supabase.co" in live mode
+      aiBase: "/api/ai",  // AI is always proxied server-side
+      mode: "demo",
+    };
+  </script>
+  <script src="/js/api.js"></script>
+  <script src="/js/store.js"></script>
+  <script src="/js/theme.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/router.js"></script>
+  <script src="/js/pages/auth.js"></script>
+  <script src="/js/pages/dashboard.js"></script>
+  <script src="/js/pages/shifts.js"></script>
+  <script src="/js/pages/tasks.js"></script>
+  <script src="/js/pages/wellness.js"></script>
+  <script src="/js/pages/recovery.js"></script>
+  <script src="/js/pages/report.js"></script>
+  <script src="/js/pages/assistant.js"></script>
+  <script src="/js/audio_engine.js"></script>
+  <script src="/js/pages/destress.js"></script>
+  <script src="/js/pages/buddy.js"></script>
+  <script src="/js/pages/home.js"></script>
+  <script src="/js/pages/medic.js"></script>
+  <script src="/js/pages/supervisor.js"></script>
+  <script src="/js/pages/incidents.js"></script>
+  <script src="/js/pages/notifications.js"></script>
+  <script src="/js/pages/settings.js"></script>
+  <script src="/js/pages/team.js"></script>
+  <script src="/js/pages/admin.js"></script>
+  <script src="/js/pages/placeholders.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

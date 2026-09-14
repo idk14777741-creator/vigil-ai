@@ -1,0 +1,17 @@
+# VIGIL AI on Render — permanent URL, free tier friendly (spins down when idle).
+# One-click: push this repo to GitHub, then Render → New → Blueprint → select repo.
+services:
+  - type: web
+    name: vigil-ai
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: VIGIL_HOST
+        value: 0.0.0.0
+      - key: VIGIL_PORT
+        value: 8787
+      # No VIGIL_MODE → demo mode with demo accounts.
+      # Live mode later: add SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_KEY
+      # in the Render dashboard (Environment) and set VIGIL_MODE=live.

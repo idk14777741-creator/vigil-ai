@@ -1,0 +1,18 @@
+[theme]
+name = "vigil-ai"
+
+[ui]
+brand = "VIGIL AI"
+tagline = "Someone is looking out for you."
+
+[theme.colors]
+background = "#F6F8F7"
+surface = "#FFFFFF"
+text = "#1F2933"
+primary = "#2F6D5E"
+
+[theme.colors.dark]
+background = "#0E1512"
+surface = "#15201C"
+text = "#E8EDEB"
+primary = "#4E9C88"

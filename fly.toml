@@ -1,0 +1,38 @@
+# VIGIL AI on Fly.io — permanent URL, scales to zero (costs nothing while idle).
+# Deploy:  fly launch --no-deploy && fly deploy
+app = "vigil-ai"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  VIGIL_HOST = "0.0.0.0"
+  VIGIL_PORT = "8787"
+  # Leave VIGIL_MODE unset → demo mode with demo accounts.
+  # Switch to live later:  fly secrets set VIGIL_MODE=live SUPABASE_URL=... SUPABASE_SERVICE_KEY=...
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 50
+    soft_limit = 25
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/health"
+
+# Persistent demo state across deploys/restarts (create first!):
+#   ~/bin/flyctl volumes create vigil_data --size 1 --region bom
+[mounts]
+  source = "vigil_data"
+  destination = "/app/data"
