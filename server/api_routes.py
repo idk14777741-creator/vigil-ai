@@ -3,6 +3,9 @@
   GET  /api/health                     public liveness + mode
   GET  /api/users/lookup?q=            people search (auth)
   GET  /api/my/dashboard               aggregate overview: shifts, tasks, wellness, recovery (Phase 2)
+  GET  /api/my/context                  operational context + smart insights + support options (SIU)
+  GET  /api/my/timeline                 personnel timeline: recent cross-module journey (SIU)
+  GET  /api/my/recovery/change          deterministic score-change explanation (SIU)
   GET  /api/my/shifts                   Shift Monitor: status, flags, weekly stats, history (Phase 3)
   GET  /api/team/shifts                 supervisor: workload stats for assigned personnel (Phase 3)
   GET  /api/my/wellness                 wellness trends + insights (simulated, Phase 5)
@@ -102,8 +105,22 @@ def handle(method: str, path: str, ctx: dict):
         if result != _no_match():
             return result
 
+    # Offline welfare transfer relay + central sync (own session auth).
+    if path.startswith("/api/transfer") or path.startswith("/api/medic/inbox"):
+        import transfer_api
+        result = transfer_api.handle(method, path, ctx)
+        if result != _no_match():
+            return result
+
+    # Intelligence & privacy layer (own session auth; roster routes role-checked inside).
+    if path.startswith("/api/intelligence") or path.startswith("/api/wellbeing"):
+        import intelligence_api
+        result = intelligence_api.handle(method, path, ctx)
+        if result != _no_match():
+            return result
+
     # Auth and public endpoints are handled by auth_api — never gate them here.
-    if path.startswith("/api/auth/") or path == "/api/demo-accounts" or path.startswith("/api/ai/") or path.startswith("/api/music") or path.startswith("/api/videos") or path.startswith("/api/buddy") or path.startswith("/api/home") or path.startswith("/api/medic") or path.startswith("/api/supervisor") or path.startswith("/api/incidents"):
+    if path.startswith("/api/auth/") or path == "/api/demo-accounts" or path.startswith("/api/ai/") or path.startswith("/api/music") or path.startswith("/api/videos") or path.startswith("/api/buddy") or path.startswith("/api/home") or path.startswith("/api/medic") or path.startswith("/api/supervisor") or path.startswith("/api/incidents") or path.startswith("/api/transfer") or path.startswith("/api/intelligence") or path.startswith("/api/wellbeing") or path.startswith("/api/medic/inbox"):
         return _no_match()
 
     profile = current_profile(ctx)
@@ -132,6 +149,18 @@ def handle(method: str, path: str, ctx: dict):
     # ---- dashboard aggregate (Phase 2) ----
     if method == "GET" and path == "/api/my/dashboard":
         return my_dashboard(profile)
+
+    # ---- operational context / insights (SIU phases 3–5) ----
+    if method == "GET" and path == "/api/my/context":
+        import insights
+        return _res(200, insights.compute(profile["id"]))
+    if method == "GET" and path == "/api/my/timeline":
+        import insights
+        return _res(200, {"events": insights.timeline(profile["id"]), "demo": True})
+    if method == "GET" and path == "/api/my/recovery/change":
+        import insights
+        explanation = insights.score_change_explanation(profile["id"])
+        return _res(200, explanation or {"has_change": False, "message": "Your second day of scores arrives tomorrow — then this explains every change."})
 
     # ---- shift monitor (Phase 3) ----
     if method == "GET" and path == "/api/my/shifts":
@@ -342,6 +371,15 @@ def my_dashboard(profile):
     prev_r = recs[-2] if len(recs) > 1 else None
     prev_week = recs[-8:-1]
 
+    # Connected operational context: one deterministic engine joins shifts,
+    # tasks, wellness and recovery into insights + support options (SIU).
+    context = None
+    try:
+        import insights
+        context = insights.compute(uid)
+    except Exception:
+        context = None  # dashboard stays usable even if the engine hiccups
+
     medic = data_store.find("medic_requests", lambda r: r["user_id"] == uid)
     sup = data_store.find("supervisor_requests", lambda r: r["user_id"] == uid)
     open_support = [r for r in medic + sup if r["status"] in ("open", "acknowledged", "in_progress")]
@@ -370,6 +408,7 @@ def my_dashboard(profile):
             "open_requests": len(open_support),
             "latest": open_support[0] if open_support else None,
         },
+        "context": context,
         "generated_at": now,
         "demo": True,
     })

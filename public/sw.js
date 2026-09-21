@@ -6,7 +6,7 @@
  *
  * Bump CACHE_VERSION whenever shell assets change to invalidate old caches.
  */
-const CACHE_VERSION = "vigil-shell-v1";
+const CACHE_VERSION = "vigil-shell-v5";
 const SHELL_ASSETS = [
   "/",
   "/index.html",
@@ -24,14 +24,18 @@ const SHELL_ASSETS = [
   "/js/theme.js",
   "/js/router.js",
   "/js/ui.js",
+  "/js/offline.js",
+  "/js/transfer.js",
   "/js/audio_engine.js",
   "/js/app.js",
   "/js/pages/auth.js",
   "/js/pages/dashboard.js",
   "/js/pages/shifts.js",
   "/js/pages/tasks.js",
+  "/js/pages/timeline.js",
   "/js/pages/wellness.js",
   "/js/pages/recovery.js",
+  "/js/pages/wellbeing.js",
   "/js/pages/report.js",
   "/js/pages/assistant.js",
   "/js/pages/destress.js",
@@ -41,6 +45,7 @@ const SHELL_ASSETS = [
   "/js/pages/supervisor.js",
   "/js/pages/incidents.js",
   "/js/pages/notifications.js",
+  "/js/pages/offline.js",
   "/js/pages/settings.js",
   "/js/pages/team.js",
   "/js/pages/admin.js",

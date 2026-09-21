@@ -234,7 +234,7 @@ def demo_accounts(body: dict, ctx: dict):
     if not config.DEMO_ACCOUNTS:
         return _res(404, {"error": "Not found"})
     accounts = []
-    for email in ("admin@vigil.demo", "supervisor@vigil.demo", "medic@vigil.demo", "priya@vigil.demo"):
+    for email in ("admin@vigil.demo", "supervisor@vigil.demo", "medic@vigil.demo", "priya@vigil.demo", "rohan@vigil.demo", "aarav@vigil.demo"):
         p = data_store.find_one("profiles", lambda x: x["email"] == email)
         if p:
             accounts.append({"email": p["email"], "role": p["role"], "full_name": p["full_name"], "password": "Vigil#2024"})

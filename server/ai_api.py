@@ -84,10 +84,31 @@ def chat(profile, body, ctx):
     if any(k in lower for k in SAFETY_TOPICS):
         reply = provider.SAFETY_REDIRECT
         flagged = True
+        support = None
     else:
-        history = data_store.find("ai_messages", lambda m: m["conversation_id"] == conv["id"])
-        history.sort(key=lambda m: m["created_at"])
-        reply = provider.complete(history[-8:])
+        # Grounded platform answers first (SIU phase 10): deterministic,
+        # computed from the user's own permitted data. Falls through to the
+        # configured AI provider for anything the platform can't answer.
+        grounded = None
+        try:
+            import ai_grounding
+            grounded = ai_grounding.grounded_reply(profile["id"], text)
+        except Exception:
+            grounded = None
+        if grounded:
+            reply = grounded["reply"]
+            support = grounded.get("support")
+        else:
+            history = data_store.find("ai_messages", lambda m: m["conversation_id"] == conv["id"])
+            history.sort(key=lambda m: m["created_at"])
+            try:
+                reply = provider.complete(history[-8:])
+            except Exception:
+                # Provider outage fallback — the assistant stays helpful.
+                reply = ("I couldn't reach my AI service just now, but I'm still here. "
+                         "I can show your Recovery factors, your week in review, or connect you to "
+                         "your support network — try asking about your week, your shifts, or say you need support.")
+            support = None
         flagged = False
 
     _append_message(conv["id"], "assistant", reply)
@@ -99,6 +120,7 @@ def chat(profile, body, ctx):
         "conversation_id": conv["id"],
         "reply": reply,
         "flagged": flagged,
+        "support": support,
     })
 
 

@@ -35,11 +35,13 @@
     const state = V.STORE.getState();
     const results = await Promise.allSettled([
       V.API.endpoints.myDashboard(), V.API.endpoints.notifications(), V.API.endpoints.myTeam(),
+      V.API.endpoints.forecast(),
     ]);
     const d = results[0].status === "fulfilled" ? results[0].value : null;
     const notifs = results[1].status === "fulfilled" ? results[1].value.notifications.slice(0, 4) : [];
     const unit = results[1].status === "fulfilled" ? results[1].value.unit : null;
     const members = results[2].status === "fulfilled" ? results[2].value.members : [];
+    const fc = results[3].status === "fulfilled" && results[3].value.has_data ? results[3].value : null;
 
     if (results[0].status === "rejected") {
       el.innerHTML = '<div class="page"><div class="empty-state"><div class="icon">🍃</div>' +
@@ -96,6 +98,10 @@
           recoveryStat(d.recovery) +
           "</section>" +
 
+          insightSection(d.context) +
+
+          forecastSection(fc) +
+
           '<div class="grid-2">' +
           '<section class="card"><div class="card-header"><h3>' + "Next tasks" + '</h3><a class="card-link" href="#/tasks">All tasks →</a></div>' +
           tasksList(d.tasks.next, d.tasks.overdue) + "</section>" +
@@ -137,6 +143,132 @@
         location.hash = "#" + btn.getAttribute("data-go");
       });
     });
+
+    // Closed support loop: tapping a support option records the engagement
+    // (detect → recommend → engage) before navigating to the module.
+    el.querySelectorAll("[data-iv]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const iv = btn.getAttribute("data-iv");
+        const res = await V.UI.safe(function () { return V.API.endpoints.interventionEngage(iv, "dashboard"); });
+        if (!res) return;
+        toast(res.reused
+          ? "Already tracked — your follow-up continues on the Wellbeing page."
+          : "Support engagement recorded. VIGIL will follow up on your recovery trend — no pressure either way.");
+        location.hash = "#" + IV_PATHS[iv];
+      });
+    });
+  }
+
+  /* ---------- Fatigue Forecast (intelligence phases 1–2) ---------- */
+
+  const IV_PATHS = {
+    destress_zone: "/destress", breathing: "/destress", buddy_connect: "/buddy",
+    medic_connection: "/medic", supervisor_load: "/supervisor", rest_break: "/shifts",
+    wellbeing_checkin: "/wellbeing",
+  };
+
+  function forecastSection(fc) {
+    if (!fc) return ""; // no score yet, or endpoint hiccup — dashboard stays usable
+    const confCls = fc.confidence === "high" ? "tone-success" : fc.confidence === "moderate" ? "tone-warning" : "tone-danger";
+    const cell = function (label, h, accent) {
+      const dir = h.change > 0 ? "tone-success" : h.change < 0 ? "tone-danger" : "";
+      const arrow = h.change > 0 ? "▲" : h.change < 0 ? "▼" : "▬";
+      return '<div class="fc-cell">' +
+        '<div class="s-label">' + label + "</div>" +
+        '<div class="s-value fc-value">' + h.projected + '<span class="fc-pm"> ± ' + h.pm + "</span></div>" +
+        '<div class="s-meta">' + arrow + " " + Math.abs(h.change) + " · range " + h.range[0] + "–" + h.range[1] + "</div>" +
+        (accent ? '<div class="fc-bar"><span style="width:' + h.projected + '%"></span></div>' : "") +
+        "</div>";
+    };
+    let html = '<section class="card forecast-card"><div class="card-header"><h3>Fatigue Forecast</h3>' +
+      '<span class="badge">' + esc(fc.label) + '</span><span class="badge ' + confCls + '">Confidence: ' + fc.confidence + "</span></div>" +
+      '<div class="fc-strip">' +
+      '<div class="fc-cell fc-current"><div class="s-label">◉ Current Recovery</div>' +
+      '<div class="s-value fc-value">' + fc.current + '<span class="s-value-sub"> / 100</span></div>' +
+      '<div class="s-meta">measured today</div>' +
+      '<div class="fc-bar"><span style="width:' + fc.current + '%"></span></div></div>' +
+      cell("24h Projection", fc.h24, true) +
+      cell("48h Projection", fc.h48, true) +
+      "</div>";
+
+    if (fc.contributors && fc.contributors.length) {
+      html += '<div class="eyebrow mb-2 mt-4">Main contributors</div><div class="fc-contribs">' +
+        fc.contributors.map(function (c) {
+          const cls = c.direction === "down" ? "tone-danger" : c.direction === "up" ? "tone-success" : "";
+          const sign = c.direction === "down" ? "−" : "+";
+          return '<div class="fc-contrib"><span class="badge ' + cls + '">' + sign + Math.abs(c.points) + "</span>" +
+            '<div><strong>' + esc(c.label) + "</strong>" +
+            '<div class="meta">' + esc(c.detail) + "</div></div></div>";
+        }).join("") + "</div>";
+    }
+
+    html += '<details class="why-details mt-4"><summary>Why this forecast?</summary>' +
+      '<ol class="why-list mt-2">' + fc.why.h24.map(function (w) { return "<li>" + esc(w) + "</li>"; }).join("") + "</ol>" +
+      '<p class="meta mt-2">' + esc(fc.disclaimer) + "</p></details>";
+
+    html += '<div class="eyebrow mb-2 mt-4">If the trend holds — support options</div><div class="insight-support">' +
+      [["♪", "De-Stress Zone", "destress_zone"], ["⇄", "Buddy Connect", "buddy_connect"],
+       ["✚", "Medic Officer", "medic_connection"], ["⚑", "Supervisor — load talk", "supervisor_load"]].map(function (s) {
+        return '<button class="support-opt as-btn" data-iv="' + s[2] + '"><span class="f-icon" aria-hidden="true">' + s[0] + "</span>" +
+          '<span><span class="ins-title">' + s[1] + "</span>" +
+          '<span class="ins-sub">engages the support loop</span></span></button>';
+      }).join("") + "</div>" +
+      '<p class="meta mt-4">A projection with uncertainty — never a guarantee, never a fitness-for-duty call. ' +
+      '<a href="#/recovery">Your measured score →</a></p></section>';
+    return html;
+  }
+
+  /* ---------- VIGIL Insight — the connected layer (SIU phases 3–5) ---------- */
+
+  function insightSection(ctx) {
+    if (!ctx) return ""; // engine hiccup — dashboard remains fully usable
+    const load = ctx.load || {};
+    const insights = ctx.insights || [];
+    const support = ctx.support_options || [];
+    const bandCls = load.band === "heavy" ? "tone-danger" : load.band === "elevated" ? "tone-warning" : "tone-success";
+
+    let html = '<section class="card insight-card"><div class="card-header"><h3>VIGIL Insight</h3>' +
+      '<span class="badge ' + bandCls + '">' + esc(load.label || "Operational load") + " · " + (load.score ?? "—") + "/100</span></div>";
+
+    html += '<div class="insight-load">';
+    if (load.reasons && load.reasons.length) {
+      html += '<p class="muted mb-2">This view connects your shifts, tasks and rest from the past week. ' +
+        "Right now it reflects: <strong>" + load.reasons.map(esc).join("; ") + "</strong>.</p>" +
+        '<details class="why-details"><summary>Why am I seeing this?</summary>' +
+        '<p class="meta mt-2">Operational load is a transparent composite: shift hours versus last week, ' +
+        "tasks open or past due, last night's sleep against your weekly pattern, and your self-reported stress. " +
+        "It never includes anything your buddies can see, and it is never shared with your supervisor. " +
+        "It is a planning aid — not a medical measure.</p></details>";
+    } else {
+      html += '<p class="muted">Nothing to flag — your shifts, tasks and rest are in their usual rhythm.</p>';
+    }
+    html += "</div>";
+
+    if (insights.length) {
+      html += '<div class="insight-list">' + insights.map(function (ins) {
+        const tone = ins.tone === "warning" ? "insight-warning" : "insight-info";
+        return '<div class="insight-row ' + tone + '">' +
+          '<span class="ins-icon" aria-hidden="true">' + ins.icon + "</span>" +
+          '<div class="grow"><div class="ins-title">' + esc(ins.title) + "</div>" +
+          '<p class="ins-msg">' + esc(ins.message) + "</p>" +
+          (ins.evidence && ins.evidence.length
+            ? '<div class="ins-evidence">' + ins.evidence.map(function (e) { return '<span class="evidence-chip">' + esc(e) + "</span>"; }).join("") + "</div>" : "") +
+          '<div class="ins-actions">' + (ins.actions || []).map(function (a) {
+            return '<a class="btn sm ghost" href="#' + esc(a.path) + '">' + esc(a.label) + "</a>";
+          }).join("") + "</div></div></div>";
+      }).join("") + "</div>";
+    }
+
+    if (support.length) {
+      html += '<div class="eyebrow mb-2 mt-4">Support options for today</div><div class="insight-support">' +
+        support.map(function (s) {
+          return '<a class="support-opt" href="#' + esc(s.path) + '"><span class="f-icon" aria-hidden="true">' + s.icon + "</span>" +
+            '<span><span class="ins-title">' + esc(s.title) + "</span>" +
+            '<span class="ins-sub">' + esc(s.desc) + "</span></span></a>";
+        }).join("") + "</div>";
+    }
+    html += '<p class="meta mt-4">Insights are generated from your own VIGIL data — deterministic and explainable, never an AI guess, never a diagnosis.</p></section>';
+    return html;
   }
 
   /* ---------- stat cards ---------- */

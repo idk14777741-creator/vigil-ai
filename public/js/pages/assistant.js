@@ -15,11 +15,11 @@
   let busy = false;
 
   const STARTERS = [
-    ["Help me unwind after a heavy shift"],
-    ["I'm feeling stressed"],
-    ["Summarise my week"],
-    ["Help me organise my tasks"],
-    ["I can't sleep well lately"],
+    ["How has my week been?"],
+    ["Why did my recovery score change?"],
+    ["What are my upcoming shifts?"],
+    ["What tasks do I still have?"],
+    ["I need support."],
   ];
 
   function render(el) {
@@ -151,12 +151,23 @@
     document.getElementById("chat-input").focus();
   }
 
-  function bubble(role, text, at) {
+  function bubble(role, text, at, support) {
     return '<div class="chat-msg ' + role + '">' +
       '<div class="msg-avatar" aria-hidden="true">' + (role === "user" ? "You".slice(0, 1) : "✦") + "</div>" +
       '<div class="msg-body"><div class="msg-text">' + esc(text).replace(/\n/g, "<br>") + "</div>" +
+      supportCards(support) +
       (at ? '<div class="msg-time meta">' + esc(timeAgo(at)) + "</div>" : "") +
       "</div></div>";
+  }
+
+  function supportCards(support) {
+    if (!support || !support.length) return "";
+    return '<div class="chat-support">' + support.map(function (s) {
+      return '<a class="chat-support-opt" href="#' + esc(s.path) + '">' +
+        '<span class="l-icon" aria-hidden="true">' + esc(s.icon) + "</span>" +
+        '<span><span class="ins-title">' + esc(s.title) + "</span>" +
+        '<span class="ins-sub">' + esc(s.desc) + "</span></span></a>";
+    }).join("") + "</div>";
   }
 
   function typingHtml() {
@@ -193,7 +204,7 @@
       const res = await V.API.endpoints.aiChat(text, activeConvId);
       hideTyping();
       activeConvId = res.conversation_id;
-      thread.insertAdjacentHTML("beforeend", bubble("assistant", res.reply));
+      thread.insertAdjacentHTML("beforeend", bubble("assistant", res.reply, null, res.support));
       thread.scrollTop = thread.scrollHeight;
       loadConversations();
     } catch (e) {

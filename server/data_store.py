@@ -47,6 +47,19 @@ _EMPTY = {
     "supervisor_request_messages": [],
     "incidents": [],
     "incident_updates": [],
+    # Offline-first welfare transfer (SIH offline phases 4–8) — mirrors the
+    # planned Supabase tables 1:1. Envelope payloads are ALWAYS ciphertext.
+    "transfer_sessions": [],
+    "transfer_envelopes": [],
+    "offline_sync_log": [],
+    # Intelligence & privacy phase — closed loop tables (Supabase names 1:1).
+    # fatigue_forecasts are computed on demand (deterministic) so only
+    # anomaly_events / interventions / wellbeing / roster scenarios persist.
+    "anomaly_events": [],
+    "intervention_events": [],
+    "intervention_followups": [],
+    "wellbeing_checkins": [],
+    "roster_scenarios": [],
 }
 
 

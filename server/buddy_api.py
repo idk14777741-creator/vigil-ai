@@ -24,7 +24,18 @@ def _no_match():
     return None, None, None
 
 
-DEFAULT_SCOPE = {"presence": False, "task_status": False}
+# Consent-first sharing (SIU phase 8): every key is an explicit opt-in the
+# user controls per connection. Buddies get NOTHING that is not switched on
+# here — and each key maps to exactly one small, non-sensitive read.
+DEFAULT_SCOPE = {
+    "presence": False,        # on/off shift right now
+    "task_status": False,     # open task count (no titles)
+    "shift_info": False,      # weekly shift hours + last shift length
+    "recovery_score": False,  # the 0-100 score + direction (no factor inputs)
+    "sleep": False,           # last night's sleep duration
+    "wellness_trends": False, # 7-day averages: sleep, steps, resting heart rate
+}
+SHARE_KEYS = tuple(DEFAULT_SCOPE)
 
 
 def handle(method: str, path: str, ctx: dict):
@@ -111,13 +122,14 @@ def my_buddy(profile):
         # share_scope belongs to the connection owner (this user) — what *I*
         # share with *them* is controlled by MY flags. What they share is on
         # the mirrored connection; in demo we keep one row, so "shared by
-        # them" = their own presence/task view filtered by *their* flags.
+        # them" = their own data filtered by *their* flags.
         shared = {}
         if their_scope.get("presence"):
             shared["presence"] = _presence_of(other["id"])
         if their_scope.get("task_status"):
             tasks = data_store.find("tasks", lambda t: t["assignee_id"] == other["id"] and t["status"] in ("pending", "in_progress", "blocked"))
             shared["task_status"] = {"open": len(tasks)}
+        shared.update(_shared_wellness(other["id"], their_scope))
     unread = 0
     if accepted:
         unread = len(data_store.find("buddy_messages", lambda m: m["connection_id"] == accepted["id"]
@@ -226,7 +238,7 @@ def set_share(profile, body, ctx):
     if not conn:
         return _res(400, {"error": "Connect with a buddy first."})
     patch = {}
-    for key in ("presence", "task_status"):
+    for key in SHARE_KEYS:
         if key in body:
             patch[key] = bool(body[key])
     if not patch:
@@ -235,8 +247,56 @@ def set_share(profile, body, ctx):
     scope.update(patch)
     data_store.update("buddy_connections", lambda c: c["id"] == conn["id"],
                       {"share_scope": scope, "updated_at": data_store.now_iso()})
-    data_store.audit(profile["id"], "buddy.share_updated", detail=patch)
+    data_store.audit(profile["id"], "buddy.share_updated", detail={k: v for k, v in patch.items()})
     return _res(200, {"share_scope": scope})
+
+
+def _shared_wellness(uid, scope):
+    """Consent-gated wellness reads. Each key serves the minimum needed —
+    e.g. recovery shares the score, never the factor inputs or notes."""
+    out = {}
+    if not any(scope.get(k) for k in ("shift_info", "recovery_score", "sleep", "wellness_trends")):
+        return out
+
+    if scope.get("shift_info"):
+        import shift_monitor
+        view = shift_monitor.compute(uid)
+        weekly = view.get("weekly", {}).get("this", {})
+        out["shift_info"] = {
+            "week_hours": weekly.get("hours"),
+            "shifts_this_week": weekly.get("shifts"),
+        }
+
+    if scope.get("recovery_score"):
+        rows = sorted(data_store.find("recovery_scores", lambda r: r["user_id"] == uid),
+                      key=lambda r: r["computed_at"])
+        if rows:
+            latest = rows[-1]
+            prev = rows[-2] if len(rows) > 1 else None
+            out["recovery_score"] = {
+                "score": latest["score"],
+                "change": (latest["score"] - prev["score"]) if prev else None,
+            }
+
+    wellness = sorted(data_store.find("wellness_data", lambda w: w["user_id"] == uid),
+                      key=lambda w: w["recorded_at"])
+    if wellness:
+        latest = wellness[-1]
+        week = [w for w in wellness[-8:-1] if w.get("sleep_minutes") is not None]
+        if scope.get("sleep") and latest.get("sleep_minutes") is not None:
+            m = latest["sleep_minutes"]
+            out["sleep"] = {"hours": round(m / 60, 1)}
+        if scope.get("wellness_trends") and week:
+            avg = lambda k: (round(sum(w[k] for w in week if w.get(k) is not None) /
+                                   max(1, len([w for w in week if w.get(k) is not None])))
+                             if any(w.get(k) is not None for w in week) else None)
+            out["wellness_trends"] = {
+                "sleep_avg_hours": round((avg("sleep_minutes") or 0) / 60, 1),
+                "steps_avg": avg("steps"),
+                "hr_avg": avg("heart_rate"),
+                "window_days": len(week),
+            }
+    return out
 
 
 def messages(profile, conn_id=None):

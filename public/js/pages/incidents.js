@@ -17,8 +17,9 @@
   ];
   const SEVERITIES = [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["critical", "Critical"]];
   const SEV_TONE = { low: "info", medium: "warn", high: "warn", critical: "danger" };
-  const STATUS_LABEL = { submitted: "Submitted", under_review: "Under review", action_taken: "Action taken", resolved: "Resolved", closed: "Closed" };
-  const STATUS_TONE = { submitted: "warn", under_review: "info", action_taken: "info", resolved: "ok", closed: "muted" };
+  const STATUS_LABEL = { submitted: "Submitted", assigned: "Assigned", under_review: "Under review", escalated: "Escalated", action_taken: "Action taken", resolved: "Resolved", closed: "Closed" };
+  const STATUS_TONE = { submitted: "warn", assigned: "info", under_review: "info", escalated: "danger", action_taken: "info", resolved: "ok", closed: "muted" };
+  const STATUS_FLOW = ["submitted", "assigned", "under_review", "escalated", "resolved"];
 
   const role = function () { return (V.STORE.getState().user || {}).role; };
   const canManage = function () { return role() === "supervisor" || role() === "admin"; };
@@ -159,6 +160,9 @@
       (i.immediate_action ? '<p class="inc-line"><span class="meta">Immediate action:</span> ' + esc(i.immediate_action) + "</p>" : "") +
       (i.resolution ? '<p class="inc-line"><span class="meta">Resolution:</span> ' + esc(i.resolution) + "</p>" : "");
 
+    body += '<h3 class="inc-sub">Workflow</h3>' + stepper(i.status) +
+      (i.assignee_name ? '<p class="meta mt-2">Assigned to <strong>' + esc(i.assignee_name) + "</strong></p>" : "");
+
     body += '<h3 class="inc-sub">Context notes</h3><div class="chat-thread" id="icontext">';
     if (!(data.context || []).length) {
       body += '<p class="meta thread-empty">No notes yet.</p>';
@@ -175,10 +179,13 @@
 
     let statusHtml = "";
     if (i.can_manage) {
-      statusHtml = '<div class="field"><label>Status</label><select id="ic-status">' +
+      statusHtml = '<div class="field-row">' +
+        '<div class="field"><label>Move to status</label><select id="ic-status">' +
         Object.keys(STATUS_LABEL).map(function (s) {
           return '<option value="' + s + '"' + (s === i.status ? " selected" : "") + ">" + STATUS_LABEL[s] + "</option>";
         }).join("") + "</select></div>" +
+        '<div class="field"><label>Assign to</label><select id="ic-assign"><option value="">— pick an owner —</option></select></div>' +
+        "</div>" +
         '<div class="field"><label>Resolution (required to resolve or close)</label>' +
         '<textarea id="ic-res" rows="2" maxlength="2000" placeholder="What was done about it…">' + esc(i.resolution || "") + "</textarea></div>";
     }
@@ -194,6 +201,21 @@
     const threadEl = m.el.querySelector("#icontext");
     threadEl.scrollTop = threadEl.scrollHeight;
     m.el.querySelector('[data-act="close"]').addEventListener("click", m.close);
+
+    // Populate the assignee picker for supervisors.
+    const assignSel = m.el.querySelector("#ic-assign");
+    if (assignSel) {
+      V.UI.safe(function () { return V.API.endpoints.lookupUsers(""); }).then(function () {});
+      V.API.api.get("/api/incidents/assignees").then(function (res) {
+        res.assignees.forEach(function (a) {
+          const opt = document.createElement("option");
+          opt.value = a.id;
+          opt.textContent = a.full_name + " (" + (a.role === "admin" ? "Administrator" : "Supervisor") + ")";
+          if (a.id === i.assigned_to) opt.selected = true;
+          assignSel.appendChild(opt);
+        });
+      }).catch(function () { /* picker stays with the placeholder */ });
+    }
 
     m.el.querySelector("#ic-add").addEventListener("click", async function () {
       const box = m.el.querySelector("#ic-note");
@@ -215,15 +237,38 @@
       saveBtn.addEventListener("click", async function () {
         const status = m.el.querySelector("#ic-status").value;
         const resolution = m.el.querySelector("#ic-res").value.trim();
-        const res = await V.UI.safe(function () {
-          return V.API.endpoints.incidentSetStatus(id, status, resolution);
-        });
-        if (!res) return;
+        const assignee = assignSel ? assignSel.value : "";
+        if (assignee && assignee !== i.assigned_to) {
+          const res = await V.UI.safe(function () { return V.API.endpoints.incidentAssign(id, assignee); });
+          if (!res) return;
+        }
+        if (status !== i.status) {
+          const res = await V.UI.safe(function () {
+            return V.API.endpoints.incidentSetStatus(id, status, resolution);
+          });
+          if (!res) return;
+        }
         toast("Report updated — the reporter has been notified.");
         m.close();
         if (onDone) onDone();
       });
     }
+  }
+
+  /* ---------- workflow stepper ---------- */
+
+  function stepper(status) {
+    // Show the five-step happy path; statuses outside it (action_taken,
+    // closed) render as "past resolved" without breaking the stepper.
+    const idx = STATUS_FLOW.indexOf(status);
+    const pastIdx = status === "closed" ? STATUS_FLOW.length : idx;
+    return '<div class="inc-stepper" role="list" aria-label="Incident workflow progress">' +
+      STATUS_FLOW.map(function (s, i) {
+        const state = i < pastIdx ? "done" : i === pastIdx ? "current" : "todo";
+        return '<div class="inc-step ' + state + '" role="listitem" aria-current="' + (state === "current") + '">' +
+          '<span class="inc-step-dot" aria-hidden="true">' + (i < pastIdx ? "✓" : i + 1) + "</span>" +
+          '<span class="inc-step-label">' + STATUS_LABEL[s] + "</span></div>";
+      }).join("") + "</div>";
   }
 
   /* ---------- helpers ---------- */

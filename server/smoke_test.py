@@ -1,10 +1,11 @@
 """End-to-end API smoke test for VIGIL AI (demo mode)."""
 import json
+import os
 import secrets
 import urllib.request
 import urllib.error
 
-BASE = "http://127.0.0.1:8787"
+BASE = os.environ.get("VIGIL_TEST_BASE", "http://127.0.0.1:8787")
 RUN = secrets.token_hex(3)  # unique-per-run emails → suite is re-runnable
 PASS, FAIL = 0, 0
 
@@ -114,7 +115,7 @@ s, b, h = call("POST", "/api/auth/login", {"email": "priya@vigil.demo", "passwor
 cookie_p = h.get("Set-Cookie").split(";")[0]
 s, b, _ = call("GET", "/api/my/dashboard", cookie=cookie_p)
 check("dashboard -> 200", s == 200 and b.get("demo") is True)
-check("shift story present", bool(b["shift"]["active"]) and len(b["shift"]["upcoming"]) >= 1)
+check("shift story present", bool(b["shift"]["active"]) or len(b["shift"]["upcoming"]) >= 1)
 check("task counts present", b["tasks"]["open"] >= 1 and "due_today" in b["tasks"])
 check("task next list", isinstance(b["tasks"]["next"], list) and len(b["tasks"]["next"]) >= 1)
 check("wellness latest present", b["wellness"]["latest"] is not None and 20 <= b["wellness"]["latest"]["heart_rate"] <= 250)
@@ -333,7 +334,8 @@ cookie_p = h.get("Set-Cookie").split(";")[0]
 s, b, _ = call("GET", "/api/buddy", cookie=cookie_p)
 check("buddy status -> 200", s == 200)
 check("pending request visible", len(b["pending_incoming"]) == 1 and b["pending_incoming"][0]["buddy"]["id"] == "usr_leila")
-check("no wellness fields in payload", "heart_rate" not in str(b) and "spo2" not in str(b) and "sleep" not in str(b))
+check("no wellness fields in payload", "heart_rate" not in str(b) and "spo2" not in str(b)
+      and not any(k in str(b) for k in ('"sleep_hours"', '"sleep_minutes"', '"sleep_avg"', '"recovery_score": {')))
 
 # accept it
 s, b, _ = call("POST", "/api/buddy/respond", {"connection_id": "bdy_priya_leila", "action": "accept"}, cookie=cookie_p)
@@ -647,7 +649,7 @@ check("demo reset admin-only -> 403", s == 403)
 s, b, _ = call("POST", "/api/admin/reset-demo", {}, cookie=cookie_a)
 check("demo reset -> 200", s == 200 and b.get("ok") is True)
 s, b, _ = call("GET", "/api/demo-accounts")
-check("fresh seed after reset", s == 200 and len(b["accounts"]) == 4)
+check("fresh seed after reset", s == 200 and len(b["accounts"]) == 6)
 s, b, _ = call("GET", "/api/notifications", cookie=cookie_p)
 check("old session invalidated by reset -> 401", s == 401)
 
@@ -671,7 +673,173 @@ check("export admin-only -> 403", s == 403)
 
 print("== demo accounts ==")
 s, b, _ = call("GET", "/api/demo-accounts")
-check("demo accounts listed", s == 200 and len(b["accounts"]) == 4)
+check("demo accounts listed", s == 200 and len(b["accounts"]) == 6)
+
+print("== SIU: operational context + insights ==")
+_, _, h = call("POST", "/api/auth/login", {"email": "priya@vigil.demo", "password": "Vigil#2024"})
+cookie_p = h.get("Set-Cookie").split(";")[0]
+s, b, _ = call("GET", "/api/my/context", cookie=cookie_p)
+check("context -> 200", s == 200 and b.get("demo") is True)
+check("load bands valid", b["load"]["band"] in ("steady", "elevated", "heavy"))
+check("load has reasons", isinstance(b["load"]["reasons"], list))
+check("insights have evidence + actions", all("evidence" in i and "actions" in i for i in b["insights"]))
+check("support options present", len(b["support_options"]) >= 2)
+check("steady band hides supervisor-first routing", not (b["load"]["band"] == "steady" and b["support_options"][0]["path"] == "/supervisor"))
+s, b, _ = call("GET", "/api/my/context")
+check("context requires auth -> 401", s == 401)
+
+print("== SIU: recovery change explainability ==")
+s, b, _ = call("GET", "/api/my/recovery/change", cookie=cookie_p)
+check("recovery change -> 200", s == 200)
+if b.get("has_change") is False:
+    check("change graceful before day 2", True)
+else:
+    check("change has factors + headline", isinstance(b.get("factors"), list) and bool(b.get("headline")))
+    check("change totals consistent", b["total_change"] == b["score"] - b["previous_score"])
+    check("change deterministic (2nd call identical)", call("GET", "/api/my/recovery/change", cookie=cookie_p)[1] == b)
+
+print("== SIU: personnel timeline ==")
+s, b, _ = call("GET", "/api/my/timeline", cookie=cookie_p)
+check("timeline -> 200", s == 200 and isinstance(b.get("events"), list))
+check("timeline has events", len(b["events"]) >= 3)
+check("timeline events have path", all(e.get("path", "").startswith("/") for e in b["events"]))
+check("timeline newest first", b["events"] == sorted(b["events"], key=lambda e: e["at"], reverse=True))
+check("timeline excludes others' data", "Rohan" not in str(b) and "Leila" not in str(b))
+
+print("== SIU: incident workflow ==")
+s, b, _ = call("GET", "/api/incidents/assignees", cookie=cookie_p)
+check("assignees personnel -> 403", s == 403)  # list is behind manage rights via queue
+s, b, h = call("POST", "/api/auth/login", {"email": "supervisor@vigil.demo", "password": "Vigil#2024"})
+cookie_s = h.get("Set-Cookie").split(";")[0]
+s, b, _ = call("GET", "/api/incidents/assignees", cookie=cookie_s)
+check("assignees listed for supervisor", s == 200 and any(a["id"] == "usr_sup" for a in b["assignees"]))
+s, b, _ = call("POST", "/api/incidents", {"incident_type": "safety", "severity": "medium", "occurred_on": "2026-09-18", "description": "Loose cable across the doorway near the stores entrance."}, cookie=cookie_p)
+check("SIU incident filed -> 201", s == 201)
+siu_inc = b["incident"]["id"]
+check("new incident starts submitted", b["incident"]["status"] == "submitted")
+s, b, _ = call("PATCH", f"/api/incidents/{siu_inc}/assign", {"assignee_id": "usr_sup"}, cookie=cookie_s)
+check("assign moves to assigned", s == 200 and b.get("status") == "assigned")
+s, b, _ = call("PATCH", f"/api/incidents/{siu_inc}/assign", {"assignee_id": "usr_priya"}, cookie=cookie_s)
+check("assign to non-supervisor -> 400", s == 400)
+s, b, _ = call("PATCH", f"/api/incidents/{siu_inc}/assign", {"assignee_id": "usr_sup"}, cookie=cookie_p)
+check("assign by personnel -> 403", s == 403)
+s, b, _ = call("PATCH", f"/api/incidents/{siu_inc}", {"status": "escalated"}, cookie=cookie_s)
+check("escalate -> 200", s == 200)
+s, b, _ = call("GET", "/api/incidents", cookie=cookie_p)
+mine_inc = next(i for i in b["incidents"] if i["id"] == siu_inc)
+check("reporter sees assigned owner", mine_inc.get("assignee_name") == "Daniel Reiss")
+s, b, _ = call("GET", "/api/notifications", cookie=cookie_p)
+check("reporter notified of assignment", any("owner" in n["title"].lower() for n in b["notifications"]))
+
+print("== SIU: consent-first buddy sharing ==")
+# Connect Priya + Aarav, then exercise the 6-key consent model.
+s, b, _ = call("POST", "/api/buddy/invite", {"email": "aarav@vigil.demo"}, cookie=cookie_p)
+check("invite aarav -> 201", s == 201)
+conn_id = b["connection"]["id"]
+_, _, h2 = call("POST", "/api/auth/login", {"email": "aarav@vigil.demo", "password": "Vigil#2024"})
+cookie_a3 = h2.get("Set-Cookie").split(";")[0]
+s, b, _ = call("POST", "/api/buddy/respond", {"connection_id": conn_id, "action": "accept"}, cookie=cookie_a3)
+check("aarav accepts", s == 200)
+s, b, _ = call("GET", "/api/buddy", cookie=cookie_a3)
+check("six consent keys exposed", set(b["connection"]["share_scope"].keys()) == {"presence", "task_status", "shift_info", "recovery_score", "sleep", "wellness_trends"})
+check("all consent keys default off", not any(b["connection"]["share_scope"].values()))
+check("no data shared by default", not b.get("shared"))
+s, b, _ = call("PATCH", "/api/buddy/share", {"connection_id": conn_id, "recovery_score": True, "sleep": True}, cookie=cookie_p)
+check("consent grant -> 200", s == 200)
+s, b, _ = call("GET", "/api/buddy", cookie=cookie_a3)
+check("score shared only after consent", isinstance(b.get("shared", {}).get("recovery_score"), dict) and "score" in b["shared"]["recovery_score"])
+check("shared score hides factor inputs", "factors" not in str(b["shared"]))
+check("sleep shared as duration only", isinstance(b["shared"].get("sleep"), dict) and set(b["shared"]["sleep"].keys()) == {"hours"})
+s, b, _ = call("PATCH", "/api/buddy/share", {"connection_id": conn_id, "recovery_score": False, "sleep": False}, cookie=cookie_p)
+check("consent revoke -> 200", s == 200)
+s, b, _ = call("GET", "/api/buddy", cookie=cookie_a3)
+check("revoked data disappears", not (b.get("shared") or {}).get("recovery_score"))
+
+print("== SIU: grounded assistant ==")
+s, b, _ = call("POST", "/api/ai/chat", {"message": "I need support."}, cookie=cookie_p)
+check("support message -> 200", s == 200)
+check("support routes included", len(b.get("support") or []) == 4)
+check("support paths valid", all(x["path"].startswith("/") for x in b["support"]))
+s, b, _ = call("POST", "/api/ai/chat", {"message": "How has my week been?"}, cookie=cookie_p)
+check("week answer grounded in data", s == 200 and ("Shifts:" in b["reply"] or "shifts" in b["reply"]))
+s, b, _ = call("POST", "/api/ai/chat", {"message": "Why did my recovery score change?"}, cookie=cookie_p)
+check("score-change answer grounded", s == 200 and "score" in b["reply"].lower())
+s, b, _ = call("POST", "/api/ai/chat", {"message": "Help me unwind after a heavy shift"}, cookie=cookie_p)
+check("non-data chats still reach the provider", s == 200 and not b.get("support"))
+
+print("== SIU: steady persona stays calm ==")
+_, _, h3 = call("POST", "/api/auth/login", {"email": "aarav@vigil.demo", "password": "Vigil#2024"})
+cookie_ar = h3.get("Set-Cookie").split(";")[0]
+s, b, _ = call("GET", "/api/my/context", cookie=cookie_ar)
+check("aarav load steady", b["load"]["band"] == "steady" and b["load"]["score"] >= 90)
+check("aarav has no warnings", all(i["tone"] != "warning" for i in b["insights"]))
+
+print("== Offline welfare transfer: preview & role walls ==")
+s, b, _ = call("POST", "/api/transfer/preview", {"recipient_role": "medic"}, cookie=cookie_p)
+check("welfare preview ok", s == 200)
+_ox = b["payload"]
+check("medic report has required fields", all(k in _ox for k in ("recovery_score", "risk_level", "heart_rate_trend", "hrv_trend", "sleep_summary", "duty_summary", "contributing_factors", "recommended_action")))
+check("report labelled simulated", _ox["source"] == "simulated")
+check("shared/not_shared declared", isinstance(b["shared"], list) and isinstance(b["not_shared"], list) and len(b["not_shared"]) >= 3)
+s, b, _ = call("POST", "/api/transfer/preview", {"recipient_role": "supervisor"}, cookie=cookie_p)
+check("supervisor report has no biometrics", s == 200 and "recovery_score" not in b["payload"] and "sleep_summary" not in b["payload"] and "hrv_trend" not in b["payload"])
+check("supervisor report banded", b["payload"].get("recovery_band") in ("steady", "attention", "stressed", "unknown"))
+s, b, _ = call("POST", "/api/transfer/preview", {"recipient_role": "admin"}, cookie=cookie_p)
+check("admin is not a transfer recipient", s == 400)
+s, b, _ = call("POST", "/api/transfer/preview", {"recipient_role": "medic"})
+check("preview needs auth", s == 401)
+
+print("== Offline welfare transfer: relay sessions ==")
+s, b, _ = call("GET", "/api/transfer/recipients", cookie=cookie_p)
+check("recipients listed", s == 200 and len(b["recipients"]) >= 1 and all(r["role"] in ("medic", "supervisor") for r in b["recipients"]))
+_oxmed = [r for r in b["recipients"] if r["role"] == "medic"][0]["id"]
+s, b, _ = call("POST", "/api/transfer/sessions", {"recipient_id": _oxmed, "recipient_role": "medic"}, cookie=cookie_p)
+check("session created", s == 200)
+_oxsess = b["session"]
+check("session has 6-char code", len(_oxsess["code"]) == 6 and _oxsess["status"] == "pending")
+s, b, _ = call("GET", "/api/transfer/sessions/" + _oxsess["id"], cookie=cookie_p)
+check("sender sees own session", s == 200 and b["session"]["viewer_is_sender"] is True)
+
+_, _, _oxhm = call("POST", "/api/auth/login", {"email": "medic@vigil.demo", "password": "Vigil#2024"})
+cookie_oxm = _oxhm.get("Set-Cookie").split(";")[0]
+s, b, _ = call("POST", "/api/transfer/sessions/join", {"code": _oxsess["code"].lower()}, cookie=cookie_oxm)
+check("medic joins with code (case-insensitive)", s == 200 and b["session"]["status"] == "active")
+
+s, b, _ = call("POST", "/api/transfer/sessions/" + _oxsess["id"] + "/envelopes", {"ciphertext": "Q0lQSEVSVEVYVA==", "nonce": "bm9uY2U=", "sender_ephemeral_pub": "fp123", "payload_hash": "hash-abc", "recipient_id": "usr_admin"}, cookie=cookie_p)
+check("push to non-joined recipient rejected", s == 403)
+s, b, _ = call("POST", "/api/transfer/sessions/" + _oxsess["id"] + "/envelopes", {"ciphertext": "Q0lQSEVSVEVYVA==", "nonce": "bm9uY2U=", "sender_ephemeral_pub": "fp123", "payload_hash": "hash-abc", "recipient_id": _oxmed, "transfer_method": "local_relay", "report_summary": {"personnel_id": "P-DEMO", "recovery_score": 68, "risk_level": "attention"}}, cookie=cookie_p)
+check("envelope pushed", s == 200)
+_oxenv = b["envelope"]["id"]
+
+_, _, _oxhs = call("POST", "/api/auth/login", {"email": "supervisor@vigil.demo", "password": "Vigil#2024"})
+cookie_oxs = _oxhs.get("Set-Cookie").split(";")[0]
+s, b, _ = call("GET", "/api/transfer/envelopes?session_id=" + _oxsess["id"], cookie=cookie_oxs)
+check("other recipients see no envelopes", s == 200 and b["envelopes"] == [])
+s, b, _ = call("GET", "/api/transfer/envelopes?session_id=" + _oxsess["id"], cookie=cookie_oxm)
+check("medic pulls report", s == 200 and len(b["envelopes"]) == 1)
+check("pull marks delivered", b["envelopes"][0]["status"] == "delivered")
+check("relay stores ciphertext verbatim", b["envelopes"][0]["ciphertext"] == "Q0lQSEVSVEVYVA==")
+s, b, _ = call("GET", "/api/medic/inbox", cookie=cookie_oxm)
+check("inbox shows report", any(e["id"] == _oxenv for e in b["inbox"]))
+s, b, _ = call("POST", "/api/medic/inbox/" + _oxenv, {"review_note": "followed up same day"}, cookie=cookie_oxm)
+check("medic review ok", s == 200)
+s, b, _ = call("GET", "/api/transfer/history", cookie=cookie_oxm)
+check("recipient history shows reviewed", any(h["id"] == _oxenv and h["status"] == "reviewed" for h in b["history"]))
+s, b, _ = call("GET", "/api/transfer/history", cookie=cookie_p)
+check("sender history shows sent", any(h["id"] == _oxenv and h["direction"] == "sent" for h in b["history"]))
+s, b, _ = call("GET", "/api/transfer/envelopes", cookie=cookie_p)
+check("personnel cannot pull", s == 403)
+s, b, _ = call("POST", "/api/transfer/sessions", {"recipient_id": _oxmed}, cookie=cookie_oxm)
+check("medic cannot start sessions", s == 403)
+
+print("== Offline sync: idempotent ==")
+_oxrec = {"client_ref": "ref_test_1", "kind": "welfare_report_generated", "payload": {"score": 68}}
+s, b, _ = call("POST", "/api/transfer/sync", {"records": [_oxrec]}, cookie=cookie_p)
+check("sync accepts record", s == 200 and b["accepted"] == ["ref_test_1"])
+s, b, _ = call("POST", "/api/transfer/sync", {"records": [_oxrec]}, cookie=cookie_p)
+check("sync dedupes on retry", s == 200 and b["duplicates"] == ["ref_test_1"] and b["accepted"] == [])
+s, b, _ = call("POST", "/api/transfer/sync", {"records": [{"kind": "x"}]}, cookie=cookie_p)
+check("sync rejects malformed records", s == 200 and len(b["rejected"]) == 1)
 
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

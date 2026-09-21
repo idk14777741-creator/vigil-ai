@@ -3,7 +3,7 @@
 import os
 
 APP_NAME = "VIGIL AI"
-APP_VERSION = "0.16.5 (Integration Phase — resilience + print)"
+APP_VERSION = "0.19.0 (intelligence & privacy layer — uncertainty-aware fatigue forecast, closed-loop interventions, on-device anomaly detection, aggregate-only roster balancer; on top of v0.18 offline-first welfare transfer)"
 HOST = os.environ.get("VIGIL_HOST", "127.0.0.1")
 # VIGIL_PORT wins; else the platform-provided PORT (Render/Heroku); else 8787.
 # Guarded: PORT=0 (seen in some sandbox shells) or garbage falls back to 8787.

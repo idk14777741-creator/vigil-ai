@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 import data_store
 
 STALE_AFTER_HOURS = 6
-PERSONNEL_IDS = ["usr_priya", "usr_rohan", "usr_leila"]
+PERSONNEL_IDS = ["usr_priya", "usr_rohan", "usr_leila", "usr_aarav"]
 
 # Per-user simulation profiles: (hr_range, spo2_range, sleep_range, quality_range,
 # steps_range, stress_range, shift_pattern)
@@ -42,6 +42,12 @@ USER_PROFILES = {
         "hr": (60, 73), "spo2": (96, 99), "sleep": (310, 430), "quality": (2, 4),
         "steps": (5200, 9500), "stress": (2, 4),
         "pattern": "nights",  # 22:00–06:00 incl. weekend pair
+    },
+    # SIH demo persona A: the steady contrast — normal load, healthy recovery.
+    "usr_aarav": {
+        "hr": (58, 68), "spo2": (97, 99), "sleep": (420, 500), "quality": (3, 5),
+        "steps": (7000, 12000), "stress": (1, 2),
+        "pattern": "days_steady",  # plain 8h weekday shifts, no extensions
     },
 }
 
@@ -63,14 +69,18 @@ def _parse(iso: str) -> datetime:
 # Shifts
 # ============================================================
 
-def _shift(user_id, start: datetime, end: datetime, shift_type="duty", notes="") -> dict:
+def _shift(user_id, start: datetime, end: datetime, shift_type="duty", notes="", scheduled_hours=None) -> dict:
     now = datetime.now()
     status = "completed" if end < now else ("scheduled" if start > now else "active")
+    actual_h = (end - start).total_seconds() / 3600
+    # scheduled_minutes records the planned length where it differs from actual
+    # (extended duty story) so the UI can show Scheduled vs Actual honestly.
     return {
         "id": data_store.new_id("shf"), "user_id": user_id,
         "start_at": _local_iso(start), "end_at": _local_iso(end),
         "shift_type": shift_type, "status": status,
         "break_minutes": 30 if shift_type == "duty" else 0,
+        "scheduled_minutes": int(scheduled_hours * 60) if scheduled_hours else int(actual_h * 60),
         "notes": notes, "created_at": data_store.now_iso(),
     }
 
@@ -84,12 +94,16 @@ def _background_shifts(user_id: str, today: datetime) -> list:
             continue  # today is special-cased in build_all
         day = today + timedelta(days=offset)
         weekday = day.weekday()  # Mon=0 .. Sun=6
-        if prof == "days":
+        if prof == "days_steady":
+            if work := weekday < 5:
+                out.append(_shift(user_id, day.replace(hour=9), day.replace(hour=17)))
+        elif prof == "days":
             work = weekday < 5
             # Rohan's heavy yesterday: an extended 16h shift the day before today.
             if user_id == "usr_rohan" and offset == -1:
                 out.append(_shift(user_id, day.replace(hour=10, minute=0),
                                   day + timedelta(days=1, hours=2),  # ends 02:00 today
+                                  scheduled_hours=8,
                                   notes="Extended duty — incident support overlap (demo)"))
                 continue
             if work:
@@ -116,17 +130,29 @@ def _today_shifts(user_id: str, today: datetime) -> list:
     """
     now = datetime.now()
     if user_id == "usr_priya":
+        # Priya carries the SIH demo story: yesterday she covered an incident
+        # and her 8h shift ran to 12.5h — the extended-duty thread that the
+        # dashboard insight, recovery explanation and supervisor view tie into.
+        yest = today - timedelta(days=1)
+        extended = _shift(user_id, yest.replace(hour=6), yest.replace(hour=18, minute=30),
+                          scheduled_hours=8,
+                          notes="Extended duty — incident support overlap (demo)")
         if now.hour < 14:
-            return [_shift(user_id, today.replace(hour=6), today.replace(hour=14),
-                           notes="Alpha Unit day duty (demo)")]
+            return [extended, _shift(user_id, today.replace(hour=6), today.replace(hour=14),
+                                     notes="Alpha Unit day duty (demo)")]
         # Afternoon/evening: an 8h duty that is mid-way right now. Cap the
         # end at 23:30 so we never roll past midnight.
         end_hour = min(23, now.hour + 4)
         end = today.replace(hour=end_hour, minute=30 if end_hour == 23 else 0)
         start = end - timedelta(hours=8)
-        return [_shift(user_id, start, end, notes="Alpha Unit day duty (demo)")]
+        return [extended, _shift(user_id, start, end, notes="Alpha Unit day duty (demo)")]
     if user_id == "usr_rohan":
         # Recovering from last night's extended duty — rest day.
+        return []
+    if user_id == "usr_aarav":
+        # Steady persona: the plain weekday template above drives his story.
+        # Weekends he is genuinely off — which also exercises the calm
+        # "no shifts" empty states for the demo.
         return []
     if user_id == "usr_leila":
         if 20 <= now.hour or now.hour < 6:
@@ -160,6 +186,7 @@ def _wellness_row(user_id: str, day: datetime, rng: random.Random, after_night: 
         "recorded_at": _local_iso(day.replace(hour=7, minute=30)),
         "source": "simulated",
         "heart_rate": rng.randint(hr_lo, hr_hi),
+        "hrv_ms": max(20, rng.randint(38, 72) - (14 if after_night else 0)),
         "spo2": rng.randint(*prof["spo2"]),
         "sleep_minutes": max(180, sleep),
         "sleep_quality": rng.randint(q_lo, q_hi),

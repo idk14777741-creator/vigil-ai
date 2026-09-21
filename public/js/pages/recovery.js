@@ -33,8 +33,13 @@
       return;
     }
 
+    const change = await V.UI.safe(function () { return V.API.endpoints.recoveryChange(); });
+    const loop = await V.UI.safe(function () { return V.API.endpoints.interventions(); });
+
     el.innerHTML = '<div class="page">' +
       hero(result) +
+      changeCard(change) +
+      supportLoopCard(loop) +
       '<div class="grid-2">' +
       factorsCard(result.latest) +
       suggestionsCard(result.suggestions) +
@@ -42,6 +47,124 @@
       historyCard(result.history) +
       formulaCard(result.formula) +
       "</div>";
+
+    // Support-loop actions: engage a support option / record a follow-up.
+    el.querySelectorAll("[data-iv]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const res = await V.UI.safe(function () {
+          return V.API.endpoints.interventionEngage(btn.getAttribute("data-iv"), "recovery");
+        });
+        if (!res) return;
+        toast(res.reused
+          ? "Already tracked — your follow-up continues below."
+          : "Support engagement recorded. Check in again after your next score.");
+        load(el);
+      });
+    });
+    el.querySelectorAll("[data-ivf]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const sel = btn.parentElement.querySelector("select");
+        const helpfulness = sel && sel.value ? parseInt(sel.value, 10) : null;
+        const res = await V.UI.safe(function () {
+          return V.API.endpoints.interventionFollowup(btn.getAttribute("data-ivf"), helpfulness);
+        });
+        if (!res) return;
+        toast("Follow-up recorded — observed change: " +
+          (res.followup.observed_change === null ? "no comparison yet" :
+            (res.followup.observed_change > 0 ? "+" : "") + res.followup.observed_change + " pts"));
+        load(el);
+      });
+    });
+  }
+
+  /* ---------- closed support loop (intelligence phase 3) ---------- */
+
+  function supportLoopCard(loop) {
+    if (!loop) return "";
+    const engaged = {};
+    (loop.open || []).forEach(function (o) { engaged[o.intervention_id] = true; });
+
+    let html = '<section class="card loop-card"><div class="card-header"><h3>Your support loop</h3>' +
+      demoChip("Observational") + "</div>";
+
+    html += '<p class="muted mb-4">Detect → support → follow up → observe the trend. VIGIL records what happens around your ' +
+      "support engagements — it never claims a support option caused any change, and none of this is a diagnosis.</p>";
+
+    html += '<div class="eyebrow mb-2">Suggested support</div><div class="insight-support">' +
+      loop.catalog.map(function (c) {
+        return '<button class="support-opt as-btn' + (engaged[c.id] ? " engaged" : "") + '" data-iv="' + esc(c.id) + '">' +
+          "<span class=\"f-icon\" aria-hidden=\"true\">" + esc(c.icon) + "</span>" +
+          "<span><span class=\"ins-title\">" + esc(c.label) + "</span>" +
+          "<span class=\"ins-sub\">" + (engaged[c.id] ? "engaged — follow up below" : "tap to engage & start tracking") + "</span></span></button>";
+      }).join("") + "</div>";
+
+    if ((loop.open || []).length) {
+      html += '<div class="eyebrow mb-2 mt-4">Open engagements</div><div class="loop-open">' +
+        loop.open.map(function (o) {
+          const ch = o.change_so_far;
+          const cls = ch > 0 ? "tone-success" : ch < 0 ? "tone-warning" : "";
+          return '<div class="loop-row"><div class="f-icon" aria-hidden="true">' + esc(o.icon) + "</div>" +
+            '<div class="grow"><div class="l-title">' + esc(o.label) + "</div>" +
+            '<div class="l-sub">Engaged ' + esc(timeAgo(o.created_at)) +
+            (o.recovery_before !== null ? " · recovery was " + o.recovery_before : "") +
+            (ch !== null && ch !== undefined ? " · <span class=\"badge " + cls + "\">" + (ch > 0 ? "+" : "") + ch + " since</span>" : "") +
+            "</div></div>" +
+            '<div class="row gap-2">' +
+            '<select class="followup-rate" aria-label="How helpful was this? (optional)">' +
+            '<option value="">Rate (optional)</option><option value="5">5 · very</option><option value="4">4</option>' +
+            '<option value="3">3</option><option value="2">2</option><option value="1">1 · not really</option></select>' +
+            '<button class="btn sm primary" data-ivf="' + esc(o.id) + '">Record follow-up</button></div></div>';
+        }).join("") + "</div>";
+    }
+
+    if ((loop.history || []).length) {
+      html += '<div class="eyebrow mb-2 mt-4">Follow-up history</div><div class="loop-history">' +
+        loop.history.map(function (h) {
+          const fu = h.followup || {};
+          const ch = fu.observed_change;
+          const cls = ch > 0 ? "tone-success" : ch < 0 ? "tone-warning" : "";
+          return '<div class="loop-row"><div class="f-icon" aria-hidden="true">' + esc(h.icon) + "</div>" +
+            '<div class="grow"><div class="l-title">' + esc(h.label) + "</div>" +
+            '<div class="l-sub">' +
+            (h.recovery_before !== null && fu.recovery_after !== null
+              ? "Recovery " + h.recovery_before + " → " + fu.recovery_after + " · " : "") +
+            (ch !== null && ch !== undefined
+              ? '<span class="badge ' + cls + '">observed change ' + (ch > 0 ? "+" : "") + ch + "</span> " : "") +
+            esc(fu.status || "") +
+            (fu.helpfulness ? " · rated " + fu.helpfulness + "/5" : "") + "</div></div></div>";
+        }).join("") + "</div>";
+    }
+
+    html += '<p class="meta mt-4">' + esc(loop.observational || "") + "</p></section>";
+    return html;
+  }
+
+  /* ---------- why did my score change (SIU phase 4) ---------- */
+
+  function changeCard(change) {
+    if (!change || change.has_change === false || !change.factors || !change.factors.length) {
+      return '<section class="card change-card"><div class="card-header"><h3>Why did my score change?</h3>' +
+        demoChip("Deterministic") + "</div>" +
+        '<p class="muted">From your second day of scores onward, this section explains every change — factor by factor, with the exact inputs.</p></section>';
+    }
+    const dir = change.direction;
+    const dirCls = dir === "up" ? "tone-success" : dir === "down" ? "tone-warning" : "";
+    const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "▬";
+    return '<section class="card change-card"><div class="card-header"><h3>Why did my score change?</h3>' +
+      '<span class="badge ' + dirCls + '">' + arrow + " " + Math.abs(change.total_change) + " vs yesterday</span></div>" +
+      '<p class="muted mb-4">' + esc(change.headline) + "</p>" +
+      '<div class="factor-list">' + change.factors.map(function (f) {
+        const up = f.delta > 0;
+        const cls = up ? "tone-success" : "tone-danger";
+        const sign = up ? "+" : "−";
+        return '<div class="factor-row"><div class="f-head"><span class="f-name">' + esc(f.label) + "</span>" +
+          '<span class="f-pts ' + cls + '">' + sign + Math.abs(f.delta) + " pts</span></div>" +
+          '<div class="f-note meta">' + esc(f.input_prev) + " → " + esc(f.input_now) + "</div></div>";
+      }).join("") + "</div>" +
+      '<details class="why-details mt-4"><summary>How this explanation is built</summary>' +
+      '<p class="meta mt-2">It compares yesterday\'s and today\'s score rows — the same numbers shown in "What shaped today\'s score" — ' +
+      "and reports each factor's point change with the underlying inputs. No AI, no estimates: the same data always produces the same explanation.</p></details>" +
+      "</section>";
   }
 
   /* ---------- hero ---------- */

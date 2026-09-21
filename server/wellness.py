@@ -45,6 +45,7 @@ def compute(uid: str, days: int = 14) -> dict:
     series = {
         "dates": [r["recorded_at"][:10] for r in rows],
         "heart_rate": [r.get("heart_rate") for r in rows],
+        "hrv_ms": [r.get("hrv_ms") for r in rows],
         "spo2": [r.get("spo2") for r in rows],
         "sleep_hours": [round(r["sleep_minutes"] / 60.0, 1) if r.get("sleep_minutes") is not None else None for r in rows],
         "sleep_quality": [r.get("sleep_quality") for r in rows],

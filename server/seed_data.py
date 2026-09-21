@@ -4,7 +4,7 @@ Creates the demo organisation, accounts for every role, unit assignments,
 welcome notifications and an initial audit event. Runs only when the store is
 empty, so restarting the server never duplicates data.
 """
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import data_store
 from security import hash_password
@@ -43,11 +43,13 @@ def seed_if_empty() -> None:
         user("usr_priya", "priya@vigil.demo", "Priya Nair", "personnel", "teal", 60 * 24 * 28),
         user("usr_rohan", "rohan@vigil.demo", "Rohan Gupta", "personnel", "blue", 60 * 24 * 27),
         user("usr_leila", "leila@vigil.demo", "Leila Khan", "personnel", "green", 60 * 24 * 26),
+        # SIU demo persona A — the steady contrast (normal load, healthy recovery).
+        user("usr_aarav", "aarav@vigil.demo", "Aarav Sharma", "personnel", "violet", 60 * 24 * 25),
     ]
     for p in profiles:
         data_store.db()["profiles"].append(p)
 
-    for uid in ("usr_priya", "usr_rohan", "usr_leila", "usr_sup", "usr_medic"):
+    for uid in ("usr_priya", "usr_rohan", "usr_leila", "usr_aarav", "usr_sup", "usr_medic"):
         data_store.db()["unit_members"].append({"unit_id": "unit_alpha", "user_id": uid, "added_at": _iso(60 * 24 * 25)})
 
     notifications = [
@@ -55,6 +57,7 @@ def seed_if_empty() -> None:
         ("usr_priya", "shift", "Shift reminder", "Your next shift starts soon. Check the Shift Monitor for timings and break plan.", "shifts", 180),
         ("usr_priya", "support", "Medic Officer available", "Dr. Meera Rao is your assigned Medic Officer. You can reach her any time from the dashboard.", "support", 60 * 24),
         ("usr_rohan", "system", "Welcome to VIGIL AI", "Your account is ready. Start from the dashboard to see your overview.", "dashboard", 50),
+        ("usr_aarav", "system", "Welcome to VIGIL AI", "Your account is ready. Start from the dashboard to see your overview.", "dashboard", 44),
         ("usr_leila", "system", "Welcome to VIGIL AI", "Your account is ready. Start from the dashboard to see your overview.", "dashboard", 45),
         ("usr_sup", "system", "Team ready", "Alpha Unit members are onboarded. Task assignment and shift views arrive in upcoming phases.", "team", 40),
         ("usr_medic", "system", "Assigned personnel", "You are the assigned Medic Officer for Alpha Unit personnel.", "support", 35),
@@ -147,12 +150,15 @@ def seed_if_empty() -> None:
         "link": "/home", "read_at": None, "created_at": _iso(60 * 6),
     })
 
-    # ---- Phase 10: buddy demo story ----
+    # ---- Phase 10 + SIU phase 8: buddy demo story ----
+    # Leila shares presence + recovery score with Rohan — a lived-in example
+    # of consent-controlled sharing the judge can toggle live.
     data_store.db()["buddy_connections"].append({
         "id": "bdy_rohan_leila",
         "requester_id": "usr_rohan", "addressee_id": "usr_leila",
         "status": "accepted",
-        "share_scope": {"presence": True, "task_status": False},
+        "share_scope": {"presence": True, "task_status": False, "shift_info": False,
+                        "recovery_score": True, "sleep": False, "wellness_trends": False},
         "created_at": _iso(60 * 24 * 10), "updated_at": _iso(60 * 24 * 10),
     })
     for i, (sender, text, mins) in enumerate([
@@ -265,8 +271,8 @@ def seed_if_empty() -> None:
          "description": "While repositioning a barricade during the night patrol it slipped before the base locked in. No one was hurt — flagging so the procedure or the lighting can be reviewed.",
          "people_involved": "Just me", "severity": "medium",
          "immediate_action": "Re-did the placement with a second person steadying it.",
-         "status": "under_review", "resolution": None,
-         "created_at": _iso(3 * 24 * 60), "updated_at": _iso(2 * 24 * 60)},
+         "status": "escalated", "assigned_to": "usr_sup", "resolution": None,
+         "created_at": _iso(3 * 24 * 60), "updated_at": _iso(1 * 24 * 60)},
         {"id": "inc_priya_old", "reporter_id": "usr_priya", "incident_type": "operational",
          "occurred_on": (datetime.now(timezone.utc) - timedelta(days=12)).date().isoformat(),
          "occurred_at": "16:15", "location": "Comms room",
@@ -280,11 +286,128 @@ def seed_if_empty() -> None:
         {"id": "inu_1", "incident_id": "inc_rohan_near", "author_id": "usr_sup",
          "body": "Thanks for reporting this the same night — that's exactly what the process is for. Reviewing the lighting levels at the north gate this week.",
          "created_at": _iso(2 * 24 * 60)},
+        {"id": "inu_2", "incident_id": "inc_rohan_near", "author_id": "usr_sup",
+         "body": "Escalated to the site facilities lead: two more near-misses at the north gate this quarter. Lighting survey is booked; interim cones placed and a buddy rule applies after dark.",
+         "created_at": _iso(1 * 24 * 60)},
     ])
 
     # ---- anchor demo time-series data to the seed moment ----
     import demo_data
     demo_data.build_all()
+
+    # ---- Intelligence layer seed (runs AFTER the time-series exists so the
+    # intervention history can reference real seeded Recovery Scores) ----
+    from datetime import datetime as _dt, timedelta as _td
+
+    # Weekly Wellbeing Check-in — Priya on a gentle upward trend (matches her
+    # recovery story: load easing, support working). One row per week (upsert key).
+    _wb_seed = [
+        ("usr_priya", 54, 4), ("usr_priya", 58, 3), ("usr_priya", 61, 2),
+        ("usr_priya", 64, 1), ("usr_priya", 67, 0),
+        ("usr_rohan", 62, 2), ("usr_rohan", 60, 1), ("usr_rohan", 58, 0),
+        ("usr_leila", 70, 3), ("usr_leila", 72, 2),
+        ("usr_aarav", 74, 4), ("usr_aarav", 76, 3), ("usr_aarav", 75, 2), ("usr_aarav", 78, 1),
+    ]
+    for uid, score, weeks_ago in _wb_seed:
+        week_start = (_dt.now() - _td(days=_dt.now().weekday() + 7 * weeks_ago))
+        ws = week_start.date().isoformat()
+        data_store.db()["wellbeing_checkins"].append({
+            "id": data_store.new_id("wbc"), "user_id": uid, "week_start": ws,
+            "answers": {}, "score": score,
+            "created_at": week_start.isoformat(timespec="seconds"),
+            "updated_at": week_start.isoformat(timespec="seconds"),
+        })
+
+    # Intervention history — every engagement/follow-up is DERIVED from the
+    # seeded Recovery Score rows (before = score that day, after = score two
+    # rows later), so the efficacy aggregates are real arithmetic over demo
+    # data, never invented percentages. Rare supports stay below the minimum
+    # sample on purpose — the UI then honestly shows "Insufficient data".
+    _pattern = {
+        "usr_priya": ["destress_zone", "buddy_connect", "destress_zone", "wellbeing_checkin"],
+        "usr_rohan": ["destress_zone", "breathing", "destress_zone", "medic_connection", "destress_zone"],
+        "usr_leila": ["buddy_connect", "destress_zone", "buddy_connect", "destress_zone", "buddy_connect"],
+        "usr_aarav": ["destress_zone", "wellbeing_checkin"],
+    }
+    for uid, pattern in _pattern.items():
+        rows = sorted([r for r in data_store.db()["recovery_scores"] if r["user_id"] == uid],
+                      key=lambda r: r["computed_at"])
+        # Older rows only — Priya's last-3-day story is seeded live below.
+        usable = rows[:-3] if uid == "usr_priya" else rows[:-2]
+        for i, r in enumerate(usable):
+            if i % 2 != 0 or i + 2 >= len(rows):
+                continue  # roughly every other day, and only where a follow-up exists
+            after_row = rows[i + 2]
+            iv_id = pattern[i % len(pattern)]
+            evt_id = f"ive_seed_{uid}_{i}"
+            change = after_row["score"] - r["score"]
+            if change >= 6:
+                st = "Observed recovery trend improving since this support."
+            elif change <= -6:
+                st = "Observed recovery trend lower since this support — it may need more than one step, and that's okay."
+            else:
+                st = "Observed recovery change is small so far — trends need a few days."
+            data_store.db()["intervention_events"].append({
+                "id": evt_id, "user_id": uid, "intervention_id": iv_id,
+                "source": ["insight", "recovery", "forecast"][i % 3],
+                "recovery_before": r["score"], "recovery_before_at": r["computed_at"],
+                "created_at": r["computed_at"]})
+            data_store.db()["intervention_followups"].append({
+                "id": f"ivf_seed_{uid}_{i}", "event_id": evt_id, "user_id": uid,
+                "recovery_after": after_row["score"], "recovery_after_at": after_row["computed_at"],
+                "observed_change": change, "helpfulness": 3 + (i % 3),
+                "status": st, "created_at": after_row["computed_at"]})
+
+    # Priya's live demo loop: a closed De-Stress engagement the evening the
+    # heavy stretch began (before = the dip-day score, after = today)...
+    _prows = sorted([r for r in data_store.db()["recovery_scores"] if r["user_id"] == "usr_priya"],
+                    key=lambda r: r["computed_at"])
+    _demo_at = _iso(60 * 23)  # the morning after the first heavy night — the dip day
+    _before = None
+    for r in _prows:
+        if r["computed_at"] <= _demo_at:
+            _before = r["score"]
+    _after = _prows[-1]["score"] if _prows else None
+    _change = (_after - _before) if (_after is not None and _before is not None) else None
+    if _change is None:
+        _status = "No Recovery Score comparison available yet — check back after your next score."
+    elif _change >= 6:
+        _status = "Observed recovery trend improving since this support."
+    elif _change <= -6:
+        _status = "Observed recovery trend lower since this support — it may need more than one step, and that's okay."
+    else:
+        _status = "Observed recovery change is small so far — trends need a few days."
+    data_store.db()["intervention_events"].append({
+        "id": "ive_demo_priya", "user_id": "usr_priya", "intervention_id": "destress_zone",
+        "source": "recovery", "recovery_before": _before, "recovery_before_at": _demo_at,
+        "created_at": _demo_at})
+    data_store.db()["intervention_followups"].append({
+        "id": "ivf_demo_priya", "event_id": "ive_demo_priya", "user_id": "usr_priya",
+        "recovery_after": _after, "recovery_after_at": _iso(0),
+        "observed_change": _change, "helpfulness": 4, "status": _status,
+        "created_at": _iso(60 * 2),
+    })
+    # ...and one OPEN Buddy engagement later that day so the follow-up panel
+    # has a live "check in now" card in the demo.
+    _y = _iso(60 * 20)
+    _b_before = None
+    for r in _prows:
+        if r["computed_at"] <= _y:
+            _b_before = r["score"]
+    data_store.db()["intervention_events"].append({
+        "id": "ive_demo_priya_buddy", "user_id": "usr_priya", "intervention_id": "buddy_connect",
+        "source": "insight", "recovery_before": _b_before, "recovery_before_at": _y,
+        "created_at": _y})
+
+    # A couple of on-device anomaly results (minimal payload — as stored).
+    data_store.db()["anomaly_events"].append({
+        "id": "ano_demo_priya", "user_id": "usr_priya", "status": "elevated_fatigue_pattern",
+        "confidence": 0.81, "model": "on_device_heuristic_v1",
+        "detected_at": _iso(60 * 26), "demo": True})
+    data_store.db()["anomaly_events"].append({
+        "id": "ano_demo_aarav", "user_id": "usr_aarav", "status": "steady_pattern",
+        "confidence": 0.92, "model": "on_device_heuristic_v1",
+        "detected_at": _iso(60 * 30), "demo": True})
 
     data_store.audit("usr_admin", "system.seed", target="demo environment", detail={"profiles": len(profiles)})
     data_store.save()

@@ -38,8 +38,8 @@
     // privacy note
     html += '<section class="card privacy-card"><div class="row gap-3">' +
       '<span class="f-icon" aria-hidden="true">🔒</span>' +
-      "<div><strong>What your buddy can — and can't — see</strong>" +
-      '<p class="meta mt-2">Never shared: heart rate, SpO₂, sleep, Recovery Score, incidents, AI conversations, supervisor or medic communications. Shared only if <em>you</em> switch it on: whether you\'re on shift, and how many tasks you have open.</p></div></div></section>';
+      "<div><strong>Consent-first, by design</strong>" +
+      '<p class="meta mt-2">Your buddy gets <strong>nothing</strong> until you switch it on — item by item, with a confirm step, revocable at any time. Never shareable, ever: factor-level Recovery inputs, AI conversations, incident reports, medic and supervisor communications.</p></div></div></section>';
 
     // accepted connection
     if (data.connection) {
@@ -68,17 +68,48 @@
 
   function acceptedCard(data) {
     const c = data.connection;
+    const first = esc(c.buddy.full_name.split(" ")[0]);
     return '<section class="card"><div class="card-header"><h3>Your buddy</h3>' +
-      '<button class="btn ghost sm" data-remove="' + c.id + '">End connection</button></div>' +
+      '<button class="btn ghost sm" data-remove="' + c.id + '">Revoke access</button></div>' +
       '<div class="list-row" style="border:none; padding:0 0 var(--sp-3)">' + avatarHtml(c.buddy, "lg") +
       '<div class="grow"><div class="l-title" style="font-size:16px">' + esc(c.buddy.full_name) + "</div>" +
       '<div class="l-sub">Connected ' + esc(timeAgo(c.created_at)) + "</div></div></div>" +
-      '<div class="eyebrow mb-2 mt-4">What you share with ' + esc(c.buddy.full_name.split(" ")[0]) + "</div>" +
+      '<div class="eyebrow mb-2 mt-4">What would you like to share?</div>' +
       '<div class="share-toggles">' +
-      shareToggle(c.id, "presence", c.share_scope.presence, "On shift or off", "Shows whether you're currently on duty — nothing more.") +
-      shareToggle(c.id, "task_status", c.share_scope.task_status, "Open task count", "Shows how many tasks you have open — no titles or details.") +
+      shareToggle(c.id, "presence", c.share_scope.presence, "On shift or off", "Whether you're currently on duty — nothing more.") +
+      shareToggle(c.id, "task_status", c.share_scope.task_status, "Open task count", "How many tasks you have open — no titles or details.") +
+      shareToggle(c.id, "shift_info", c.share_scope.shift_info, "Shift information", "Weekly shift hours and last shift length.") +
+      shareToggle(c.id, "recovery_score", c.share_scope.recovery_score, "Recovery Score", "Your 0–100 score and its day-to-day direction — never the factor inputs.") +
+      shareToggle(c.id, "sleep", c.share_scope.sleep, "Sleep", "Last night's sleep duration only.") +
+      shareToggle(c.id, "wellness_trends", c.share_scope.wellness_trends, "Wellness trends", "7-day averages: sleep, steps, resting heart rate.") +
       "</div>" +
-      '<p class="meta mt-4">Changes apply immediately. Everything else stays private, always.</p></section>';
+      '<p class="meta mt-2">Nothing is shared until <em>you</em> switch it on. ' +
+      "Recovery factor inputs, AI conversations, incidents and medic/supervisor threads are never shareable — there is no code path that exposes them.</p>" +
+      '<div class="row gap-2 mt-3"><button class="btn primary sm" id="share-confirm">Confirm sharing</button>' +
+      '<button class="btn ghost sm" id="share-revoke-all">Turn everything off</button></div>' +
+      '<p class="meta mt-2" id="share-hint">Tick the boxes, then confirm. You can revoke any item — or everything — at any time.</p>' +
+      '<div class="mt-4"><div class="eyebrow mb-2">What ' + first + " shares with you</div>" +
+      sharedSummary(data.shared) + "</div></section>";
+  }
+
+  function sharedSummary(shared) {
+    if (!shared || !Object.keys(shared).length) {
+      return '<p class="meta">Nothing yet — they haven\'t switched anything on.</p>';
+    }
+    const rows = [];
+    if (shared.presence) rows.push(["◐", "On shift: " + (shared.presence.on_shift ? "yes" : "no")]);
+    if (shared.task_status) rows.push(["☑", "Open tasks: " + shared.task_status.open]);
+    if (shared.shift_info) rows.push(["⚑", "This week: " + shared.shift_info.week_hours + "h across " + shared.shift_info.shifts_this_week + " shifts"]);
+    if (shared.recovery_score) rows.push(["◉", "Recovery: " + shared.recovery_score.score + "/100" +
+      (shared.recovery_score.change !== null && shared.recovery_score.change !== undefined ?
+        (shared.recovery_score.change >= 0 ? " (▲ " : " (▼ ") + Math.abs(shared.recovery_score.change) + " vs yesterday)" : "")]);
+    if (shared.sleep) rows.push(["☾", "Last night: " + shared.sleep.hours + "h sleep"]);
+    if (shared.wellness_trends) rows.push(["♡", "7-day avg: " + shared.wellness_trends.sleep_avg_hours + "h sleep · " +
+      (shared.wellness_trends.steps_avg || 0).toLocaleString() + " steps · " + (shared.wellness_trends.hr_avg || "—") + " bpm"]);
+    return '<div class="stack-list">' + rows.map(function (r) {
+      return '<div class="list-row"><span class="l-icon" aria-hidden="true">' + r[0] + "</span>" +
+        '<div class="grow"><div class="l-sub">' + esc(r[1]) + "</div></div></div>";
+    }).join("") + "</div>";
   }
 
   function shareToggle(connId, key, on, title, desc) {
@@ -142,16 +173,48 @@
         load(target.closest("#page-content") || document.getElementById("page-content"));
       });
     });
-    // share toggles
-    target.querySelectorAll("[data-share]").forEach(function (box) {
-      box.addEventListener("change", async function () {
-        const body = { connection_id: box.getAttribute("data-conn") };
-        body[box.getAttribute("data-share")] = box.checked;
-        const res = await V.UI.safe(function () { return V.API.endpoints.buddyShare(body); });
-        if (!res) { toast("Couldn't update sharing.", "error"); box.checked = !box.checked; return; }
-        toast(box.checked ? "Now sharing with your buddy." : "Sharing turned off.", "success");
+    // consent-first sharing: stage checkboxes, apply on Confirm
+    const conn = data.connection;
+    const hint = document.getElementById("share-hint");
+    if (conn) {
+      let dirty = false;
+      target.querySelectorAll("[data-share]").forEach(function (box) {
+        box.addEventListener("change", function () {
+          dirty = true;
+          if (hint) hint.textContent = "Changes not applied yet — press Confirm sharing to save.";
+        });
       });
-    });
+      const confirmBtn = document.getElementById("share-confirm");
+      confirmBtn?.addEventListener("click", async function () {
+        const patch = { connection_id: conn.id };
+        target.querySelectorAll("[data-share]").forEach(function (box) {
+          patch[box.getAttribute("data-share")] = box.checked;
+        });
+        const res = await V.UI.safe(function () { return V.API.endpoints.buddyShare(patch); });
+        if (!res) { toast("Couldn't update sharing.", "error"); return; }
+        dirty = false;
+        if (hint) hint.textContent = "Saved — " + Object.keys(patch).filter(function (k) { return k !== "connection_id" && patch[k]; }).length + " item(s) now shared.";
+        toast("Sharing preferences saved.", "success");
+        load(target.closest("#page-content") || document.getElementById("page-content"));
+      });
+      document.getElementById("share-revoke-all")?.addEventListener("click", async function () {
+        const ok = await confirmModal({
+          title: "Revoke all sharing?",
+          message: "Your buddy will see none of your data. Messages between you stay.",
+          confirmLabel: "Revoke all", danger: true,
+        });
+        if (!ok) return;
+        const patch = { connection_id: conn.id };
+        target.querySelectorAll("[data-share]").forEach(function (box) {
+          box.checked = false;
+          patch[box.getAttribute("data-share")] = false;
+        });
+        const res = await V.UI.safe(function () { return V.API.endpoints.buddyShare(patch); });
+        if (!res) { toast("Couldn't update sharing.", "error"); return; }
+        toast("All sharing revoked. Your data stays yours.", "success");
+        load(target.closest("#page-content") || document.getElementById("page-content"));
+      });
+    }
     // invite
     const form = document.getElementById("buddy-invite-form");
     form?.addEventListener("submit", async function (e) {

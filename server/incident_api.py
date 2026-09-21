@@ -16,12 +16,20 @@ import data_store
 
 INCIDENT_TYPES = ("operational", "safety", "trauma", "near_miss", "other")
 SEVERITIES = ("low", "medium", "high", "critical")
-STATUSES = ("submitted", "under_review", "action_taken", "resolved", "closed")
+# SIU workflow: Submitted → Assigned → Under Review → Escalated → Resolved.
+# (action_taken/closed remain valid for older records and data imports.)
+STATUSES = ("submitted", "assigned", "under_review", "escalated", "action_taken", "resolved", "closed")
+# The stepper shown to users — the happy-path order of the workflow.
+STATUS_FLOW = ("submitted", "assigned", "under_review", "escalated", "resolved")
 TYPE_LABELS = {
     "operational": "Operational", "safety": "Safety", "trauma": "Trauma-related",
     "near_miss": "Near miss", "other": "Other",
 }
 SEVERITY_LABELS = {"low": "Low", "medium": "Medium", "high": "High", "critical": "Critical"}
+STATUS_LABELS = {
+    "submitted": "Submitted", "assigned": "Assigned", "under_review": "Under review",
+    "escalated": "Escalated", "action_taken": "Action taken", "resolved": "Resolved", "closed": "Closed",
+}
 
 
 def _res(status, payload, headers=None):
@@ -64,8 +72,24 @@ def handle(method: str, path: str, ctx: dict):
             return _res(403, {"error": "You can't file incidents from this account."})
         return create(profile, ctx.get("body") or {}, ctx)
 
+    if method == "GET" and path == "/api/incidents/assignees":
+        if not _can_manage(profile):
+            return _res(403, {"error": "Only supervisors and admins can assign incidents."})
+        # Eligible assignees for triage: supervisors and admins.
+        rows = data_store.find("profiles", lambda p: p["role"] in ("supervisor", "admin") and p.get("status") == "active")
+        rows.sort(key=lambda p: p["full_name"])
+        return _res(200, {"assignees": [{"id": p["id"], "full_name": p["full_name"], "role": p["role"]} for p in rows]})
+
     if path.startswith("/api/incidents/"):
         incident_id = path.rsplit("/", 1)[-1]
+        if path.endswith("/assign"):
+            incident_id = path.rsplit("/", 2)[-2]
+            incident = data_store.find_one("incidents", lambda i: i["id"] == incident_id)
+            if not incident or not _can_see(profile, incident):
+                return _res(404, {"error": "Incident not found."})
+            if not _can_manage(profile):
+                return _res(403, {"error": "Only supervisors can assign incidents."})
+            return assign(profile, incident, ctx.get("body") or {}, ctx)
         incident = data_store.find_one("incidents", lambda i: i["id"] == incident_id)
         if not incident or not _can_see(profile, incident):
             return _res(404, {"error": "Incident not found."})
@@ -162,7 +186,7 @@ def mine(profile):
 def queue(profile):
     rows = data_store.find("incidents", lambda i: True)
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    status_order = {"submitted": 0, "under_review": 1, "action_taken": 2, "resolved": 3, "closed": 4}
+    status_order = {"submitted": 0, "assigned": 1, "under_review": 2, "escalated": 0, "action_taken": 3, "resolved": 4, "closed": 5}
     rows.sort(key=lambda i: (status_order[i["status"]], order[i["severity"]], i["created_at"]), reverse=False)
     open_count = sum(1 for i in rows if i["status"] in ("submitted", "under_review"))
     critical_count = sum(1 for i in rows if i["severity"] == "critical" and i["status"] not in ("resolved", "closed"))
@@ -174,8 +198,37 @@ def queue(profile):
     })
 
 
+def assign(profile, incident, body, ctx):
+    """Assign an incident to a supervisor/admin for handling (SIU workflow)."""
+    assignee_id = (body.get("assignee_id") or "").strip()
+    assignee = data_store.find_one("profiles", lambda p: p["id"] == assignee_id and p["role"] in ("supervisor", "admin") and p.get("status") == "active")
+    if not assignee:
+        return _res(400, {"error": "Pick a supervisor or administrator to assign this to."})
+    data_store.update("incidents", lambda i: i["id"] == incident["id"], {
+        "assigned_to": assignee_id,
+        "status": "assigned" if incident["status"] == "submitted" else incident["status"],
+        "updated_at": data_store.now_iso(),
+    })
+    data_store.insert("notifications", {
+        "id": data_store.new_id("ntf"), "user_id": assignee_id, "kind": "incident",
+        "title": "Incident assigned to you",
+        "body": f"{SEVERITY_LABELS[incident['severity']]} severity · {TYPE_LABELS[incident['incident_type']]} — triage and follow up from the incidents queue.",
+        "link": "/incidents", "read_at": None, "created_at": data_store.now_iso(),
+    })
+    if incident["reporter_id"] not in (profile["id"], assignee_id):
+        data_store.insert("notifications", {
+            "id": data_store.new_id("ntf"), "user_id": incident["reporter_id"], "kind": "incident",
+            "title": "Your report has an owner",
+            "body": f"{assignee['full_name']} is now handling your report. You'll be notified as it moves forward.",
+            "link": "/incidents", "read_at": None, "created_at": data_store.now_iso(),
+        })
+    data_store.audit(profile["id"], "incident.assigned", target=incident["id"], detail={"assignee": assignee_id})
+    return _res(200, {"ok": True, "assigned_to": assignee_id, "status": "assigned" if incident["status"] == "submitted" else incident["status"]})
+
+
 def _project(profile, i):
     reporter = data_store.find_one("profiles", lambda p: p["id"] == i["reporter_id"])
+    assignee = data_store.find_one("profiles", lambda p: p["id"] == i.get("assigned_to")) if i.get("assigned_to") else None
     return {
         "id": i["id"], "incident_type": i["incident_type"], "occurred_on": i["occurred_on"],
         "occurred_at": i.get("occurred_at"), "location": i.get("location"),
@@ -184,6 +237,8 @@ def _project(profile, i):
         "status": i["status"], "resolution": i.get("resolution"),
         "created_at": i["created_at"], "updated_at": i["updated_at"],
         "reporter": reporter["full_name"] if reporter else "Unknown",
+        "assigned_to": i.get("assigned_to"),
+        "assignee_name": assignee["full_name"] if assignee else None,
         "is_mine": i["reporter_id"] == profile["id"],
         "can_manage": _can_manage(profile),
         "context_count": len(data_store.find("incident_updates", lambda u: u["incident_id"] == i["id"])),

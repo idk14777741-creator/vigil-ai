@@ -14,6 +14,7 @@
   const NAV = [
     { section: "Overview", items: [
       { path: "/dashboard", label: "Dashboard", icon: "◆", roles: ["personnel", "supervisor", "medic", "admin"] },
+      { path: "/timeline", label: "Timeline", icon: "◍", roles: ["personnel"] },
     ]},
     { section: "Operational", items: [
       { path: "/shifts", label: "Shift Monitor", icon: "◐", roles: ["personnel", "supervisor"] },
@@ -22,6 +23,7 @@
     { section: "Wellbeing", items: [
       { path: "/wellness", label: "Wellness Monitor", icon: "♡", roles: ["personnel"] },
       { path: "/recovery", label: "Recovery Score", icon: "◉", roles: ["personnel"] },
+      { path: "/wellbeing", label: "Wellbeing Check-in", icon: "☰", roles: ["personnel"] },
       { path: "/report", label: "Weekly Report", icon: "▤", roles: ["personnel"] },
       { path: "/assistant", label: "VIGIL AI Assistant", icon: "✦", roles: ["personnel"] },
       { path: "/destress", label: "De-stress Zone", icon: "♪", roles: ["personnel"] },
@@ -34,6 +36,7 @@
       { path: "/incidents", label: "Incident Reporting", icon: "△", roles: ["personnel", "supervisor"] },
     ]},
     { section: "Workspace", items: [
+      { path: "/offline", label: "Offline & Transfers", icon: "⇅", roles: ["personnel", "medic", "supervisor", "admin"] },
       { path: "/notifications", label: "Notifications", icon: "◍", roles: ["personnel", "supervisor", "medic", "admin"] },
       { path: "/team", label: "My Team", icon: "◎", roles: ["personnel", "supervisor", "medic", "admin"] },
       { path: "/settings", label: "Settings", icon: "⚙", roles: ["personnel", "supervisor", "medic", "admin"] },
@@ -49,6 +52,10 @@
 
   async function boot() {
     V.THEME.initTheme();
+    if (V.Offline) {
+      V.Offline.init();
+      V.Offline.onChange(paintConnChip);
+    }
     window.addEventListener("hashchange", renderRoute);
     window.addEventListener("offline", updateOfflineBanner);
     window.addEventListener("online", updateOfflineBanner);
@@ -60,6 +67,23 @@
       V.STORE.setMeta(me.mode, me.version);
     } catch (e) {
       V.STORE.clearSession();
+    }
+    // Cache the signed-in user's data for offline use — covers both the boot
+    // path and in-session sign-ins (guarded so the 30s unread refresh doesn't
+    // re-trigger it; fire-and-forget).
+    if (V.Offline) {
+      let cachedUid = null;
+      V.STORE.onChange(function (state) {
+        if (state.user && state.user.id !== cachedUid) {
+          cachedUid = state.user.id;
+          V.Offline.cacheMine(state.user);
+          // On-device anomaly detection (intelligence phase 6): runs from the
+          // local cache after it refreshes; only the minimal result uploads.
+          if (state.user.role === "personnel" && V.Offline.runAnomalyDetection) {
+            V.Offline.runAnomalyDetection(state.user).catch(function () { /* best-effort */ });
+          }
+        }
+      });
     }
 
     renderRoute();
@@ -132,7 +156,10 @@
       "<header class=\"topbar\">" +
       '<button class="icon-btn sidebar-toggle" id="sidebar-toggle" aria-label="Open navigation">☰</button>' +
       '<span class="page-title" id="topbar-title">Dashboard</span>' +
-      '<span class="mode-chip" title="' + esc(state.version) + '">' + esc(state.mode) + " mode</span>" +
+      '<span class="mode-chip' + (state.mode === "demo" ? " demo-active" : "") + '" title="' +
+      esc(state.version) + (state.mode === "demo" ? " — every value is simulated for evaluation" : "") + '">' +
+      (state.mode === "demo" ? "DEMO MODE" : esc(state.mode) + " mode") + "</span>" +
+      '<span class="conn-chip" id="conn-chip" role="status" aria-live="polite"></span>' +
       '<div class="right row gap-2">' +
       '<button class="icon-btn" id="theme-btn" aria-label="Toggle color theme" title="Theme: ' + esc(V.THEME.getTheme()) + '">◐</button>' +
       '<a class="icon-btn" id="notif-btn" href="#/notifications" aria-label="Notifications">' + "◍" + (state.unread ? '<span class="dot-badge"></span>' : "") + "</a>" +
@@ -323,14 +350,39 @@
      ============================================================ */
 
   function updateOfflineBanner() {
+    if (V.Offline) V.Offline.refreshStatus();
+    paintConnChip();
+  }
+
+  /* Connection status chip (§16): subtle, always present, honest.
+   * ONLINE · OFFLINE — local mode · SYNCING… · simulated states labelled. */
+  function paintConnChip() {
+    const chip = document.getElementById("conn-chip");
+    if (!chip) return;
+    const s = V.Offline ? V.Offline.getStatus() : { net: navigator.onLine ? "online" : "offline" };
+    const sim = !!s.simulatedOffline;
+    const offline = sim || s.net !== "online";
+    const cls = offline ? "warn" : s.syncing ? "info" : "ok";
+    const label = offline ? "Offline — local mode" : (s.syncing ? "Syncing…" : "Online");
+    chip.className = "conn-chip tone-" + cls;
+    chip.textContent = label;
+    chip.title = offline
+      ? "No internet. VIGIL keeps working from this device — welfare transfers can still use a local channel."
+      : "Connected. Queued offline records sync automatically.";
+
+    // Full-bleed banner only for REAL connectivity loss — the simulation
+    // must not look identical to a genuine outage.
     const existing = document.getElementById("offline-banner");
-    if (existing) existing.remove();
-    if (navigator.onLine === false) {
-      const banner = document.createElement("div");
-      banner.id = "offline-banner";
-      banner.className = "offline-banner";
-      banner.innerHTML = '<span class="dot"></span> You\'re offline — showing your last loaded data.';
-      document.body.appendChild(banner);
+    if (s.net === "offline") {
+      if (!existing) {
+        const banner = document.createElement("div");
+        banner.id = "offline-banner";
+        banner.className = "offline-banner";
+        banner.innerHTML = '<span class="dot"></span> You\'re offline — VIGIL is running in local mode. Your data is safe on this device.';
+        document.body.appendChild(banner);
+      }
+    } else if (existing) {
+      existing.remove();
     }
   }
 

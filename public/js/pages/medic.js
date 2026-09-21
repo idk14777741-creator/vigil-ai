@@ -16,6 +16,8 @@
     ["medication", "Medication"], ["follow_up", "Follow-up"], ["other", "Something else"],
   ];
   const STATUS_LABEL = { open: "Open", acknowledged: "Acknowledged", in_progress: "In progress", resolved: "Resolved", declined: "Declined" };
+  // SIU workflow: request → assigned/acknowledged → in progress → resolved
+  const REQ_FLOW = ["open", "acknowledged", "in_progress", "resolved"];
   const STATUS_TONE = { open: "warn", acknowledged: "info", in_progress: "info", resolved: "ok", declined: "muted" };
 
   const role = function () { return (V.STORE.getState().user || {}).role; };
@@ -213,7 +215,7 @@
     const m = openModal({
       title: req.is_mine ? "Your request" : "Request from " + req.person,
       size: "lg",
-      body: threadHtml + statusHtml +
+      body: requestStepper(req.status) + threadHtml + statusHtml +
         (canReply
           ? '<div class="thread-composer"><textarea id="mt-msg" rows="2" maxlength="2000" placeholder="Write a reply…"></textarea>' +
             '<button class="btn primary" id="mt-send">Send</button></div>'
@@ -272,5 +274,21 @@
 
   function statusBadge(status) {
     return '<span class="status-badge tone-' + (STATUS_TONE[status] || "muted") + '">' + (STATUS_LABEL[status] || status) + "</span>";
+  }
+
+  function requestStepper(status) {
+    if (status === "declined") {
+      return '<div class="inc-stepper"><div class="inc-step done"><span class="inc-step-dot">✓</span>' +
+        '<span class="inc-step-label">Declined — your request was reviewed and closed</span></div></div>';
+    }
+    const idx = REQ_FLOW.indexOf(status);
+    if (idx === -1) return "";
+    return '<div class="inc-stepper" role="list" aria-label="Request progress">' +
+      REQ_FLOW.map(function (s, i) {
+        const state = i < idx ? "done" : i === idx ? "current" : "todo";
+        return '<div class="inc-step ' + state + '" role="listitem">' +
+          '<span class="inc-step-dot" aria-hidden="true">' + (i < idx ? "✓" : i + 1) + "</span>" +
+          '<span class="inc-step-label">' + STATUS_LABEL[s] + "</span></div>";
+      }).join("") + "</div>";
   }
 })(window.VIGIL);
