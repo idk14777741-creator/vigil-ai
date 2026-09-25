@@ -247,6 +247,32 @@ check("no diagnostic language", not any(w in b["trend_message"].lower() for w in
 s, b, _ = call("GET", "/api/my/recovery")
 check("recovery requires auth -> 401", s == 401)
 
+print("== stress load score (addendum §5–§11) ==")
+s, b, h = call("POST", "/api/auth/login", {"email": "priya@vigil.demo", "password": "Vigil#2024"})
+cookie_p = h.get("Set-Cookie").split(";")[0]
+s, b, _ = call("GET", "/api/my/stress", cookie=cookie_p)
+check("stress -> 200 + demo", s == 200 and b.get("demo") is True and b.get("has_data") is True)
+check("stress score bounded", 0 <= b["score"] <= 100)
+check("stress 7 factor meta", len(b["factor_meta"]) == 7 and all(m["points"] <= m["max"] for m in b["factor_meta"]))
+check("stress has input notes", all(m["input"] for m in b["factor_meta"]))
+check("stress band valid", b["band"] in ("steady", "elevated", "high"))
+check("stress distinct from recovery", "100" not in b["distinct_from_recovery"].replace("100 —", "").split("100")[0] or "separately" in b["distinct_from_recovery"])
+check("stress weights honest", "not clinical" in b["weights_note"])
+check("stress physio caution", "context" in b["disclaimer"].lower())
+check("stress support options", isinstance(b["support"], list) and 2 <= len(b["support"]) <= 4)
+# Determinism: same data must yield the same score (call twice)
+s2, b2, _ = call("GET", "/api/my/stress", cookie=cookie_p)
+check("stress deterministic", b2["score"] == b["score"] and b2["factors"] == b["factors"])
+# Stress must NOT be 100 minus recovery
+s, rec, _ = call("GET", "/api/my/recovery", cookie=cookie_p)
+check("stress not 100-recovery", b["score"] != 100 - rec["latest"]["score"] or rec["latest"]["score"] == 50)
+s, b, _ = call("GET", "http://127.0.0.1:8788/api/my/stress/history".replace("http://127.0.0.1:8788", ""), cookie=cookie_p)
+check("stress history -> 200", s == 200 and b.get("demo") is True)
+check("stress history bounded", all(0 <= p["score"] <= 100 for p in b["points"]))
+check("stress history dated", all("date" in p for p in b["points"]))
+s, b, _ = call("GET", "/api/my/stress")
+check("stress requires auth -> 401", s == 401)
+
 print("== weekly report (Phase 7) ==")
 s, b, h = call("POST", "/api/auth/login", {"email": "priya@vigil.demo", "password": "Vigil#2024"})
 cookie_p = h.get("Set-Cookie").split(";")[0]

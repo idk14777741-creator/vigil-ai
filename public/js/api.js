@@ -78,6 +78,8 @@
     updateTask: function (id, patch) { return api.patch("/api/tasks/" + id, patch); },
     myWellness: function () { return api.get("/api/my/wellness"); },
     myRecovery: function () { return api.get("/api/my/recovery"); },
+    stress: function () { return api.get("/api/my/stress"); },
+    stressHistory: function () { return api.get("/api/my/stress/history"); },
     myReport: function () { return api.get("/api/my/report"); },
     saveReflection: function (weekStart, text) { return api.post("/api/my/report/reflection", { week_start: weekStart, reflection: text }); },
     aiChat: function (message, conversationId) { return api.post("/api/ai/chat", { message: message, conversation_id: conversationId }); },

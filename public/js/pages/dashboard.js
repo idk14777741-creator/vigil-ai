@@ -35,13 +35,14 @@
     const state = V.STORE.getState();
     const results = await Promise.allSettled([
       V.API.endpoints.myDashboard(), V.API.endpoints.notifications(), V.API.endpoints.myTeam(),
-      V.API.endpoints.forecast(),
+      V.API.endpoints.forecast(), V.API.endpoints.stress(),
     ]);
     const d = results[0].status === "fulfilled" ? results[0].value : null;
     const notifs = results[1].status === "fulfilled" ? results[1].value.notifications.slice(0, 4) : [];
     const unit = results[1].status === "fulfilled" ? results[1].value.unit : null;
     const members = results[2].status === "fulfilled" ? results[2].value.members : [];
     const fc = results[3].status === "fulfilled" && results[3].value.has_data ? results[3].value : null;
+    const st = results[4].status === "fulfilled" && results[4].value.has_data ? results[4].value : null;
 
     if (results[0].status === "rejected") {
       el.innerHTML = '<div class="page"><div class="empty-state"><div class="icon">🍃</div>' +
@@ -100,6 +101,8 @@
 
           insightSection(d.context) +
 
+          indicatorsRow(d.recovery, st, fc) +
+
           forecastSection(fc) +
 
           '<div class="grid-2">' +
@@ -157,6 +160,104 @@
         location.hash = "#" + IV_PATHS[iv];
       });
     });
+  }
+
+  /* ---------- Three indicators — Recovery | Stress Load | Fatigue Risk (addendum §5–§6, §28) ----------
+   * Three distinct questions, never merged into one score:
+   *   Recovery — "How recovered am I?"  (higher = better)
+   *   Stress  — "How much load am I under?" (higher = more load, own engine)
+   *   Fatigue — "Does the pattern indicate near-term fatigue risk?" (the forecast)
+   */
+
+  function indicatorsRow(rec, st, fc) {
+    let html = '<section class="card"><div class="card-header"><h3>Your three indicators</h3>' +
+      demoChip("Demo · Simulated") + "</div>";
+    html += '<div class="ind-strip">';
+
+    // 1 — Recovery (from the measured score)
+    const recScore = rec.latest ? rec.latest.score : null;
+    const recPrev = rec.previous_score;
+    const recTrend = recScore !== null && recPrev !== null ? recScore - recPrev : null;
+    html += indCell({
+      icon: "◉", name: "Recovery", q: "How recovered am I?",
+      value: recScore !== null ? recScore + " / 100" : "—",
+      bar: recScore, goodHigh: true,
+      trend: recTrend === null ? "" :
+        (recTrend > 0 ? "<span class='badge tone-success'>▲ Improving</span>" :
+         recTrend < 0 ? "<span class='badge tone-danger'>▼ Down " + Math.abs(recTrend) + "</span>" :
+         "<span class='badge'>▬ Stable</span>"),
+      href: "#/recovery", link: "Recovery →",
+      why: rec.latest ? (rec.latest.explanation || "") : "Your first score arrives after a day of shifts and rest.",
+    });
+
+    // 2 — Stress Load (its own engine — never 100 − recovery)
+    if (st) {
+      const bandCls = st.band === "high" ? "tone-danger" : st.band === "elevated" ? "tone-warning" : "tone-success";
+      html += indCell({
+        icon: "⌁", name: "Stress Load", q: "How much load am I under?",
+        value: st.score + " / 100",
+        bar: st.score, goodHigh: false,
+        trend: "<span class='badge " + bandCls + "'>" + esc(st.band_label) + "</span>",
+        href: "#/recovery", link: "What's driving it →",
+        why: st.summary + " " + st.distinct_from_recovery,
+      });
+    } else {
+      html += indCell({
+        icon: "⌁", name: "Stress Load", q: "How much load am I under?",
+        value: "—", bar: null, goodHigh: false, trend: "",
+        href: "#/recovery", link: "Recovery →",
+        why: "Your Stress Load Score appears after a few days of shifts and readings.",
+      });
+    }
+
+    // 3 — Fatigue Risk (the forecast band, not a number)
+    if (fc) {
+      // Risk word derived from the projected 48h change — calm bands, not a new score.
+      const drop = -(fc.h48.change);
+      const riskWord = drop >= 12 ? "Elevated" : drop >= 5 ? "Watch" : "Low";
+      const riskCls = drop >= 12 ? "tone-warning" : "tone-success";
+      html += indCell({
+        icon: "◔", name: "Fatigue Risk", q: "Does the pattern indicate near-term fatigue risk?",
+        value: riskWord, bar: null, goodHigh: false,
+        trend: "<span class='badge " + riskCls + "'>" + esc(fc.confidence) + " confidence</span>",
+        href: "#/recovery", link: "The 24–48h view →",
+        why: "The forecast projects your measured Recovery over the next 24–48 hours with an uncertainty " +
+          "range. Projected 48h change: " + (fc.h48.change > 0 ? "+" : "") + fc.h48.change + " points. " +
+          "Main drivers now: " + (fc.contributors || []).slice(0, 2).map(function (c) { return c.label; }).join(", ") + ". " + fc.disclaimer,
+      });
+    } else {
+      html += indCell({
+        icon: "◔", name: "Fatigue Risk", q: "Does the pattern indicate near-term fatigue risk?",
+        value: "—", bar: null, goodHigh: false, trend: "",
+        href: "#/recovery", link: "Recovery →",
+        why: "The fatigue-risk estimate appears once a Recovery trend exists.",
+      });
+    }
+
+    html += "</div>";
+    html += '<p class="meta mt-4">Three separate questions, three separate answers — Recovery, Stress and Fatigue ' +
+      "are computed independently and can move in different directions. Wellness indicators, never a medical assessment.</p>";
+    html += "</section>";
+    return html;
+  }
+
+  function indCell(c) {
+    let bar = "";
+    if (c.bar !== null && c.bar !== undefined) {
+      // For stress, a fuller bar means MORE load — flip the fill colour axis,
+      // not the semantics: recovery fills green-ward, stress fills amber-ward.
+      const cls = c.goodHigh ? (c.bar >= 70 ? "fill-good" : c.bar >= 45 ? "fill-mid" : "fill-low")
+                            : (c.bar >= 65 ? "fill-low" : c.bar >= 40 ? "fill-mid" : "fill-good");
+      bar = '<div class="ind-bar"><span class="' + cls + '" style="width:' + c.bar + '%"></span></div>';
+    }
+    return '<div class="ind-cell">' +
+      '<div class="ind-name"><span class="ind-icon" aria-hidden="true">' + c.icon + "</span>" + esc(c.name) + "</div>" +
+      '<div class="ind-value">' + c.value + "</div>" +
+      bar +
+      '<div class="ind-trend">' + c.trend + "</div>" +
+      '<div class="ind-q meta">' + esc(c.q) + "</div>" +
+      '<details class="why-details mt-2"><summary>Why?</summary><p class="meta mt-2">' + esc(c.why) + "</p></details>" +
+      '<a class="card-link s-link mt-2" href="' + c.href + '">' + esc(c.link) + "</a></div>";
   }
 
   /* ---------- Fatigue Forecast (intelligence phases 1–2) ---------- */

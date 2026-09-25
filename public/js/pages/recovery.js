@@ -8,6 +8,7 @@
   const fmtDate = V.UI.fmtDate;
   const demoChip = V.UI.demoChip;
   const toast = V.UI.toast;
+  const timeAgo = V.UI.timeAgo;
 
   V.ROUTER.register("/recovery", render, { title: "Recovery Score", nav: "/recovery", roles: ["personnel"] });
 
@@ -35,9 +36,11 @@
 
     const change = await V.UI.safe(function () { return V.API.endpoints.recoveryChange(); });
     const loop = await V.UI.safe(function () { return V.API.endpoints.interventions(); });
+    const stress = await V.UI.safe(function () { return V.API.endpoints.stress(); });
 
     el.innerHTML = '<div class="page">' +
       hero(result) +
+      stressCard(stress) +
       changeCard(change) +
       supportLoopCard(loop) +
       '<div class="grid-2">' +
@@ -168,6 +171,53 @@
   }
 
   /* ---------- hero ---------- */
+
+  /* ---------- Stress Load — the second indicator, its own engine (addendum §5, §8) ---------- */
+
+  function stressCard(st) {
+    if (!st || !st.has_data) {
+      return '<section class="card"><div class="card-header"><h3>Stress Load Score</h3>' +
+        demoChip("Demo · Simulated") + "</div>" +
+        '<p class="muted">Your Stress Load Score appears after a few days of shifts and readings. ' +
+        "It is a separate indicator from Recovery — it measures how much load you're under, not how restored you are.</p></section>";
+    }
+    const bandCls = st.band === "high" ? "tone-danger" : st.band === "elevated" ? "tone-warning" : "tone-success";
+
+    let html = '<section class="card"><div class="card-header"><h3>Stress Load Score</h3>' +
+      '<span class="badge ' + bandCls + '">' + esc(st.band_label) + "</span>" + demoChip("Demo · Simulated") + "</div>";
+
+    html += '<div class="row gap-4 mt-2 wrap">' +
+      '<div><div class="ind-value">' + st.score + '<span> / 100</span></div>' +
+      '<div class="s-meta">higher = more current load</div></div>' +
+      '<p class="muted grow" style="max-width:480px">' + esc(st.summary) + "</p></div>";
+
+    html += '<div class="factor-list mt-4">' + st.factor_meta.map(function (m) {
+      const pct = m.max ? Math.round(m.points / m.max * 100) : 0;
+      return '<div class="factor-row"><div class="f-head"><span class="f-name">' + esc(m.label) + "</span>" +
+        '<span class="f-pts">+' + m.points + " / " + m.max + "</span></div>" +
+        '<div class="progress-track"><div class="progress-fill ' +
+        (pct >= 66 ? "tone-danger" : pct >= 33 ? "tone-warning" : "tone-success") +
+        '" style="width:' + pct + '%"></div></div>' +
+        '<div class="f-note meta">' + esc(m.input) + "</div></div>";
+    }).join("") + "</div>";
+
+    if (st.support && st.support.length) {
+      html += '<div class="eyebrow mb-2 mt-4">If you want support today</div><div class="insight-support">' +
+        st.support.map(function (s) {
+          return '<button class="support-opt as-btn" data-iv="' + s.engage + '"><span class="f-icon" aria-hidden="true">' + s.icon + "</span>" +
+            '<span><span class="ins-title">' + esc(s.title) + "</span>" +
+            '<span class="ins-sub">' + esc(s.desc) + "</span></span></button>";
+        }).join("") + "</div>";
+    }
+
+    html += '<details class="why-details mt-4"><summary>Why is this different from Recovery?</summary>' +
+      '<p class="meta mt-2">' + esc(st.distinct_from_recovery) + "</p>" +
+      '<p class="meta mt-2">' + esc(st.weights_note) + "</p>" +
+      '<p class="meta mt-2">' + esc(st.disclaimer) + "</p></details>";
+
+    html += "</section>";
+    return html;
+  }
 
   function hero(d) {
     const l = d.latest;

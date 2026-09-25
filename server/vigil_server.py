@@ -200,7 +200,10 @@ def main() -> None:
                 print(f"[notifications] {counts['digests']} digest(s), {counts['reminders']} reminder(s)")
         except Exception as exc:
             print(f"[notifications] skipped: {exc}")
-    server = ThreadingHTTPServer((config.HOST, config.PORT), VigilHandler)
+    class ReusableServer(ThreadingHTTPServer):
+        allow_reuse_address = True  # fast restarts: rebind while old sockets TIME_WAIT
+
+    server = ReusableServer((config.HOST, config.PORT), VigilHandler)
     print(f"VIGIL AI {config.APP_VERSION} — demo mode")
     print(f"Serving {PUBLIC_DIR}")
     print(f"Ready: http://{config.HOST}:{config.PORT}")

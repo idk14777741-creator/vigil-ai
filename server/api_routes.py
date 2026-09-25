@@ -10,6 +10,8 @@
   GET  /api/team/shifts                 supervisor: workload stats for assigned personnel (Phase 3)
   GET  /api/my/wellness                 wellness trends + insights (simulated, Phase 5)
   GET  /api/my/recovery                 recovery score history + suggestions (Phase 6)
+  GET  /api/my/stress                   stress load score + factor breakdown (addendum §5)
+  GET  /api/my/stress/history           stress score daily points for trend chart
   GET  /api/my/report                   weekly report (Phase 7)
   POST /api/my/report/reflection        save personal reflection (Phase 7)
   GET  /api/my/tasks                    own tasks (q, status, priority filters) (Phase 4)
@@ -175,6 +177,14 @@ def handle(method: str, path: str, ctx: dict):
     # ---- recovery score (Phase 6) ----
     if method == "GET" and path == "/api/my/recovery":
         return my_recovery(profile)
+
+    # ---- stress load score (addendum §5–§11) — separate indicator, own engine ----
+    if method == "GET" and path == "/api/my/stress":
+        import stress
+        return _res(200, stress.compute(profile["id"]))
+    if method == "GET" and path == "/api/my/stress/history":
+        import stress
+        return _res(200, {"points": stress.history(profile["id"]), "demo": True})
 
     # ---- weekly report (Phase 7) ----
     if method == "GET" and path == "/api/my/report":

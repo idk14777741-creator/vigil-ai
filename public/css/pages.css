@@ -735,3 +735,19 @@
 .roster-head { background:var(--surface-2, rgba(0,0,0,.04)); font-size:12px; letter-spacing:.04em; text-transform:uppercase; color:var(--text-3); }
 .roster-ext { padding:6px 8px; border-radius:var(--radius-sm); border:1px solid var(--border-strong); background:var(--surface); color:var(--text); }
 @media (max-width: 720px) { .roster-card .mini-row { grid-template-columns:1fr 1fr; } .roster-head { display:none; } }
+
+/* ---- Three indicators strip (Recovery | Stress | Fatigue Risk) ---- */
+.ind-strip { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; margin-top: var(--sp-3); }
+.ind-cell { border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px; background:var(--surface); display:flex; flex-direction:column; gap:6px; }
+.ind-name { font-size:13px; font-weight:600; letter-spacing:.02em; display:flex; align-items:center; gap:6px; }
+.ind-icon { color:var(--brand); }
+.ind-value { font-size:26px; font-weight:700; line-height:1.1; }
+.ind-value span { font-size:14px; font-weight:500; color:var(--text-muted); }
+.ind-bar { height:6px; border-radius:var(--radius-pill); background:var(--border); overflow:hidden; }
+.ind-bar span { display:block; height:100%; border-radius:var(--radius-pill); transition:width var(--dur-med) var(--ease-out); }
+.ind-bar .fill-good { background:var(--success); }
+.ind-bar .fill-mid { background:var(--warning); }
+.ind-bar .fill-low { background:var(--danger); }
+.ind-trend { min-height:22px; }
+.ind-q { font-size:12px; }
+@media (max-width: 720px) { .ind-strip { grid-template-columns:1fr; } }
