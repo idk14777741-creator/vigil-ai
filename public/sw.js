@@ -6,7 +6,7 @@
  *
  * Bump CACHE_VERSION whenever shell assets change to invalidate old caches.
  */
-const CACHE_VERSION = "vigil-shell-v6";
+const CACHE_VERSION = "vigil-shell-v8";
 const SHELL_ASSETS = [
   "/",
   "/index.html",

@@ -273,6 +273,23 @@ check("stress history dated", all("date" in p for p in b["points"]))
 s, b, _ = call("GET", "/api/my/stress")
 check("stress requires auth -> 401", s == 401)
 
+print("== multilingual language preference (presentation-only) ==")
+s, b, _ = call("PATCH", "/api/me", {"language_preference": "hinglish"}, cookie=cookie_p)
+check("set hinglish -> 200", s == 200 and b["user"]["language_preference"] == "hinglish")
+# Scores and data must be untouched by the language change
+s, st_after, _ = call("GET", "/api/my/stress", cookie=cookie_p)
+check("language change keeps stress score", st_after["score"] == b2["score"])
+s, rec_after, _ = call("GET", "/api/my/recovery", cookie=cookie_p)
+check("language change keeps recovery score", rec_after["latest"]["score"] == rec["latest"]["score"])
+s, b, _ = call("PATCH", "/api/me", {"language_preference": "ta"}, cookie=cookie_p)
+check("set tamil -> 200", s == 200 and b["user"]["language_preference"] == "ta")
+s, b, _ = call("PATCH", "/api/me", {"language_preference": "klingon"}, cookie=cookie_p)
+check("unknown language -> 400", s == 400)
+s, b, _ = call("PATCH", "/api/me", {"language_preference": "en"}, cookie=cookie_p)
+check("reset to en -> 200", s == 200 and b["user"]["language_preference"] == "en")
+s, b, _ = call("PATCH", "/api/me", {"language_preference": "hi"})
+check("language requires auth -> 401", s == 401)
+
 print("== weekly report (Phase 7) ==")
 s, b, h = call("POST", "/api/auth/login", {"email": "priya@vigil.demo", "password": "Vigil#2024"})
 cookie_p = h.get("Set-Cookie").split(";")[0]
@@ -359,19 +376,14 @@ s, b, h = call("POST", "/api/auth/login", {"email": "priya@vigil.demo", "passwor
 cookie_p = h.get("Set-Cookie").split(";")[0]
 s, b, _ = call("GET", "/api/buddy", cookie=cookie_p)
 check("buddy status -> 200", s == 200)
-check("pending request visible", len(b["pending_incoming"]) == 1 and b["pending_incoming"][0]["buddy"]["id"] == "usr_leila")
+check("seeded accepted connection", b["connection"] is not None and b["connection"]["id"] == "bdy_priya_leila")
+check("leila present as buddy", b["connection"]["buddy"]["id"] == "usr_leila")
 check("no wellness fields in payload", "heart_rate" not in str(b) and "spo2" not in str(b)
       and not any(k in str(b) for k in ('"sleep_hours"', '"sleep_minutes"', '"sleep_avg"', '"recovery_score": {')))
 
-# accept it
-s, b, _ = call("POST", "/api/buddy/respond", {"connection_id": "bdy_priya_leila", "action": "accept"}, cookie=cookie_p)
-check("accept request", s == 200 and b["status"] == "accepted")
-
-# default sharing = nothing
-s, b, _ = call("GET", "/api/buddy", cookie=cookie_p)
-check("default scope all off", b["connection"]["share_scope"]["presence"] is False and b["connection"]["share_scope"]["task_status"] is False)
-
-# message exchange (scoped to this connection)
+# seeded messages exist; sending another works
+s, b, _ = call("GET", "/api/buddy/messages?connection_id=bdy_priya_leila", cookie=cookie_p)
+check("seeded buddy messages present", s == 200 and len(b["messages"]) >= 3)
 s, b, _ = call("POST", "/api/buddy/messages", {"body": "Thanks for connecting!", "connection_id": "bdy_priya_leila"}, cookie=cookie_p)
 check("send message -> 201", s == 201)
 s, b, h = call("POST", "/api/auth/login", {"email": "leila@vigil.demo", "password": "Vigil#2024"})
@@ -385,7 +397,7 @@ check("enable presence share", s == 200 and b["share_scope"]["presence"] is True
 s, b, h = call("POST", "/api/auth/login", {"email": "priya@vigil.demo", "password": "Vigil#2024"})
 cookie_p = h.get("Set-Cookie").split(";")[0]
 s, b, _ = call("GET", "/api/buddy", cookie=cookie_p)
-# Leila enabled presence on HER connection -> Priya sees Leila's presence
+# Leila's scope on this connection: presence + recovery shared
 shared_ok = (b["shared"] or {}).get("presence") is not None
 check("presence shared when opted in", shared_ok)
 check("task status still hidden", "task_status" not in (b["shared"] or {}))

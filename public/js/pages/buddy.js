@@ -35,16 +35,19 @@
   function draw(target, data) {
     let html = "";
 
-    // privacy note
-    html += '<section class="card privacy-card"><div class="row gap-3">' +
-      '<span class="f-icon" aria-hidden="true">🔒</span>' +
-      "<div><strong>Consent-first, by design</strong>" +
-      '<p class="meta mt-2">Your buddy gets <strong>nothing</strong> until you switch it on — item by item, with a confirm step, revocable at any time. Never shareable, ever: factor-level Recovery inputs, AI conversations, incident reports, medic and supervisor communications.</p></div></div></section>';
+    // privacy note (compact strip — chat is the primary experience)
+    html += consentStrip();
 
     // accepted connection
     if (data.connection) {
-      html += acceptedCard(data);
-    } else {
+      // Chat-first layout: connection status + messages fill the main area;
+      // sharing controls sit below as the consent-management panel.
+      target.innerHTML = '<div class="buddy-flow">' + html + chatCard(data) +
+        acceptedCard(data) + "</div>";
+      wire(target, data);
+      return;
+    }
+    {
       // pending in/out + invite
       if (data.pending_incoming.length) {
         html += '<section class="card"><div class="card-header"><h3>Buddy requests</h3></div>' +
@@ -59,22 +62,22 @@
       html += inviteCard(data);
     }
 
-    target.innerHTML = '<div class="grid-2">' + html +
-      // messaging side (when connected)
-      (data.connection ? chatCard(data) : "") + "</div>";
+    target.innerHTML = '<div class="grid-2">' + html + "</div>";
 
     wire(target, data);
+  }
+
+  function consentStrip() {
+    return '<section class="buddy-consent-strip"><span class="f-icon" aria-hidden="true">🔒</span>' +
+      '<div class="grow"><strong>Consent-first, by design</strong>' +
+      '<p class="meta">Your buddy gets <strong>nothing</strong> until you switch it on — item by item, revocable any time. Never shareable: factor-level Recovery inputs, AI conversations, incidents, medic and supervisor communications.</p></div></section>';
   }
 
   function acceptedCard(data) {
     const c = data.connection;
     const first = esc(c.buddy.full_name.split(" ")[0]);
-    return '<section class="card"><div class="card-header"><h3>Your buddy</h3>' +
-      '<button class="btn ghost sm" data-remove="' + c.id + '">Revoke access</button></div>' +
-      '<div class="list-row" style="border:none; padding:0 0 var(--sp-3)">' + avatarHtml(c.buddy, "lg") +
-      '<div class="grow"><div class="l-title" style="font-size:16px">' + esc(c.buddy.full_name) + "</div>" +
-      '<div class="l-sub">Connected ' + esc(timeAgo(c.created_at)) + "</div></div></div>" +
-      '<div class="eyebrow mb-2 mt-4">What would you like to share?</div>' +
+    return '<section class="card share-panel"><div class="card-header"><h3>Sharing controls</h3></div>' +
+      '<div class="eyebrow mb-2">What would you like to share?</div>' +
       '<div class="share-toggles">' +
       shareToggle(c.id, "presence", c.share_scope.presence, "On shift or off", "Whether you're currently on duty — nothing more.") +
       shareToggle(c.id, "task_status", c.share_scope.task_status, "Open task count", "How many tasks you have open — no titles or details.") +
@@ -136,7 +139,13 @@
   }
 
   function chatCard(data) {
-    return '<section class="card chat-card"><div class="card-header"><h3>Messages' +
+    const c = data.connection;
+    return '<section class="card chat-card"><div class="card-header chat-head">' +
+      '<div class="row gap-2">' + avatarHtml(c.buddy) +
+      '<div><div class="l-title">' + esc(c.buddy.full_name) + "</div>" +
+      '<div class="l-sub"><span class="status-dot on" aria-hidden="true"></span> Trusted buddy · connected ' + esc(timeAgo(c.created_at)) + "</div></div></div>" +
+      '<button class="btn ghost sm" data-remove="' + c.id + '">Revoke access</button></div>' +
+      '<div class="card-header"><h3>Messages' +
       (data.unread ? ' <span class="badge tone-brand">' + data.unread + " new</span>" : "") + "</h3></div>" +
       '<div class="buddy-thread" id="buddy-thread" aria-live="polite"></div>' +
       '<form id="buddy-msg-form" class="row gap-2 mt-2">' +

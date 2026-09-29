@@ -151,8 +151,9 @@ def seed_if_empty() -> None:
     })
 
     # ---- Phase 10 + SIU phase 8: buddy demo story ----
-    # Leila shares presence + recovery score with Rohan — a lived-in example
-    # of consent-controlled sharing the judge can toggle live.
+    # Priya & Leila are connected with presence + recovery sharing on — a
+    # lived-in example of consent-controlled sharing the judge can toggle live.
+    # (Rohan & Leila keep their own accepted connection.)
     data_store.db()["buddy_connections"].append({
         "id": "bdy_rohan_leila",
         "requester_id": "usr_rohan", "addressee_id": "usr_leila",
@@ -174,15 +175,26 @@ def seed_if_empty() -> None:
     data_store.db()["buddy_connections"].append({
         "id": "bdy_priya_leila",
         "requester_id": "usr_leila", "addressee_id": "usr_priya",
-        "status": "pending",
-        "share_scope": {"presence": False, "task_status": False},
-        "created_at": _iso(90), "updated_at": _iso(90),
+        "status": "accepted",
+        "share_scope": {"presence": True, "task_status": False, "shift_info": False,
+                        "recovery_score": True, "sleep": False, "wellness_trends": False},
+        "created_at": _iso(60 * 24 * 4), "updated_at": _iso(60 * 20),
     })
+    for i, (sender, text, mins) in enumerate([
+        ("usr_leila", "Hey — saw you had the long one yesterday. How are you holding up?", 60 * 22),
+        ("usr_priya", "Managing. Recovery took a dip but the supervisor's already helping rebalance the week.", 60 * 21),
+        ("usr_leila", "That's the right way round. Coffee after your shift tomorrow? My treat.", 60 * 20),
+    ]):
+        data_store.db()["buddy_messages"].append({
+            "id": f"bms_priya_{i}", "connection_id": "bdy_priya_leila",
+            "sender_id": sender, "body": text, "read_at": None,
+            "created_at": _iso(mins),
+        })
     data_store.db()["notifications"].append({
         "id": "ntf_buddy_priya", "user_id": "usr_priya", "kind": "buddy",
-        "title": "Buddy request",
-        "body": "Leila Khan would like to connect as your buddy.",
-        "link": "/buddy", "read_at": None, "created_at": _iso(90),
+        "title": "Buddy connected",
+        "body": "Leila Khan accepted your buddy connection. You can message each other now.",
+        "link": "/buddy", "read_at": None, "created_at": _iso(60 * 20),
     })
 
     # ---- Phase 9: music catalog (generative recipes — no copyrighted audio) ----
@@ -262,6 +274,55 @@ def seed_if_empty() -> None:
          "created_at": _iso(4 * 60)},
     ])
 
+    # ---- SIU demo polish: Priya's connected workload story ----
+    # Priya's week is heavy (yesterday's extended duty shows on her dashboard
+    # insight). An OPEN supervisor request ties that story into an operational
+    # intervention the judge can follow — workload concern → visibility →
+    # action → follow-up. Wellness data never enters this channel.
+    data_store.db()["supervisor_requests"].append({
+        "id": "sreq_priya_load", "user_id": "usr_priya",
+        "medic_id": None, "supervisor_id": "usr_sup",
+        "category": "work_issue", "description": (
+            "Yesterday's duty ran about 12.5h against an 8h plan, and three tasks "
+            "have slipped past due. I'm managing, but the load is building up and "
+            "I don't want it to affect the rest of the week."),
+        "status": "in_progress",
+        "created_at": _iso(5 * 60), "updated_at": _iso(60),
+    })
+    data_store.db()["supervisor_request_messages"].extend([
+        {"id": "srm_priya_1", "request_id": "sreq_priya_load", "sender_id": "usr_sup",
+         "body": ("Thanks for raising this — better to flag it early. I can see the "
+                  "shift ran long; the operational picture on my side matches "
+                  "(heavy week, tasks stacking up). No wellness details needed "
+                  "from you, and none are used here."),
+         "created_at": _iso(4 * 60)},
+        {"id": "srm_priya_2", "request_id": "sreq_priya_load", "sender_id": "usr_sup",
+         "body": ("Action taken: I'm reassigning 'Review updated patrol route map' "
+                  "off your list and moving the handover-notes prep to Thursday. "
+                  "Let's check in tomorrow after your shift to see if the week "
+                  "looks lighter."),
+         "created_at": _iso(60)},
+    ])
+
+    # ---- AI Assistant demo conversations ----
+    # Clearly simulated, grounded in Priya's own seeded demo state at seed
+    # time (recovery score, sleep, week hours — all read back from the just-
+    # generated deterministic data so the conversation never contradicts the
+    # dashboard). They demonstrate VIGIL being contextual to the platform —
+    # never a diagnosis, never invented scores.
+    def _aiconv(cid, title, mins, msgs):
+        t0 = _iso(mins)
+        data_store.db()["ai_conversations"].append({
+            "id": cid, "user_id": "usr_priya", "title": title,
+            "created_at": t0, "updated_at": _iso(max(0, mins - 40)),
+        })
+        step = 60  # seconds between turns
+        for i, (role, body) in enumerate(msgs):
+            data_store.db()["ai_messages"].append({
+                "id": f"{cid}_m{i}", "conversation_id": cid, "role": role,
+                "body": body, "created_at": _iso(max(0, mins - i * step)),
+            })
+
     # ---- Phase 14: Incident Reporting demo story ----
     from datetime import datetime, timezone
     data_store.db()["incidents"].extend([
@@ -294,6 +355,100 @@ def seed_if_empty() -> None:
     # ---- anchor demo time-series data to the seed moment ----
     import demo_data
     demo_data.build_all()
+
+    # ---- AI Assistant demo conversations ----
+    # Clearly simulated, grounded in Priya's own seeded demo state — the
+    # numbers below are read back from the rows demo_data just generated, so
+    # the conversation can never contradict the dashboard or Recovery page.
+    # No diagnoses, no invented scores.
+    def _hms(minutes):
+        return f"{int(minutes // 60)}h {int(minutes % 60)}m"
+
+    def _fmt_h(h):
+        return f"{h:g}h"
+
+    _p_rows = sorted(data_store.find("recovery_scores", lambda r: r["user_id"] == "usr_priya"),
+                     key=lambda r: r["computed_at"])
+    _p_rec = _p_rows[-1]["score"] if _p_rows else None
+    _p_prev = _p_rows[-2]["score"] if len(_p_rows) > 1 else None
+    _p_well = sorted(data_store.find("wellness_data", lambda w: w["user_id"] == "usr_priya"),
+                     key=lambda w: w["recorded_at"])
+    _p_w = _p_well[-1] if _p_well else {}
+    _p_sleep = _hms(_p_w.get("sleep_minutes") or 390)
+    _p_stress = _p_w.get("stress_self_report", 3)
+
+    _today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    _week_start = _today - timedelta(days=_today.weekday())
+    _week_end = _week_start + timedelta(days=7)
+    _p_week_h = 0.0
+    _ext_txt = ""
+    for s in data_store.db()["shifts"]:
+        if s["user_id"] != "usr_priya":
+            continue
+        st = datetime.fromisoformat(s["start_at"])
+        if not (_week_start <= st < _week_end):
+            continue
+        en = datetime.fromisoformat(s["end_at"])
+        _p_week_h += (en - st).total_seconds() / 3600
+        sched = s.get("scheduled_minutes")
+        if sched:
+            actual = (en - st).total_seconds() / 60
+            if actual - sched >= 120:  # the extended-duty story shift
+                _ext_txt = (f"Yesterday's duty ran about {actual / 60:g} hours against a "
+                            f"{sched / 60:g}-hour plan")
+    _p_week_h = round(_p_week_h, 1)
+    if not _ext_txt:
+        _ext_txt = "Your recent duty ran noticeably past its plan"
+
+    _p_open = [t for t in data_store.db()["tasks"]
+               if t["assignee_id"] == "usr_priya" and t["status"] in ("pending", "in_progress")]
+    _p_overdue = [t for t in _p_open if t.get("due_at") and datetime.fromisoformat(t["due_at"]) < datetime.now()]
+
+    _rec_txt = (f"your Recovery Score sits at {_p_rec} today"
+                + (f" — {('down' if _p_rec < _p_prev else 'up')} from {_p_prev} earlier in the week" if _p_prev else "")
+                if _p_rec is not None else "your Recovery Score is being computed from today's data")
+
+    _aiconv("aic_demo_priya_load", "Tired after the long shifts", 60 * 26, [
+        ("user", "I've been feeling really drained the last couple of days. Is it just me?"),
+        ("assistant",
+          "You're not imagining it — your own VIGIL data points to a simple, "
+          "connected story. " + _ext_txt + ", and you've logged roughly "
+          + _fmt_h(_p_week_h) + " of shift hours this week. You slept about "
+          + _p_sleep + " last night, and your self-reported stress is "
+          + str(_p_stress) + " out of 5.\n\n"
+          "Put together, that's why " + _rec_txt + ". The factors weighing "
+          "most are weekly shift load, last night's sleep and the extended duty "
+          "itself — the Recovery page breaks each one down with its exact points.\n\n"
+          "None of this is a diagnosis — it's just your own data, laid out side by "
+          "side. Your supervisor request about the workload is already in progress, "
+          "and the De-stress Zone has a two-minute breathing reset if you want a "
+          "break between tasks."),
+        ("user", "Okay that actually matches how I feel. What can I do today?"),
+        ("assistant",
+          "A few small things, all from your own plan: 1) Your open tasks are on "
+          "the Tasks page — finishing one clears a thing off the pile. 2) Take one "
+          "De-stress Zone reset during your break. 3) Keep tonight's wind-down — "
+          "even getting sleep back toward 7h usually helps recovery within a day "
+          "or two. And if the tiredness sticks around or feels worse than 'long "
+          "week' tired, your Medic Officer is the right person to talk to — you "
+          "can message her from Medic Connection any time."),
+    ])
+    _tasks_txt = "\n\n".join(
+        "• " + t["title"] + " — " + (t.get("priority") or "medium") + " priority, "
+        + ("in progress" if t["status"] == "in_progress" else "pending")
+        + (" — currently past its due date; if it's blocked, your supervisor can "
+           "help rebalance it (you already have a workload conversation in "
+           "progress with Daniel)." if t in _p_overdue else ".")
+        for t in _p_open[:4])
+    _aiconv("aic_demo_priya_tasks", "What's on my plate today?", 60 * 3, [
+        ("user", "What are my tasks today?"),
+        ("assistant",
+          "From your task list right now:" + _tasks_txt + "\n\n"
+          "That's " + str(len(_p_open)) + " open task" + ("s" if len(_p_open) != 1 else "")
+          + (" — " + str(len(_p_overdue)) + " past due" if _p_overdue else "")
+          + ". Your shift status is on the dashboard and the Shift Monitor. "
+          "Want me to check what's driving your workload score?"),
+    ])
 
     # ---- Intelligence layer seed (runs AFTER the time-series exists so the
     # intervention history can reference real seeded Recovery Scores) ----

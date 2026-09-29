@@ -64,7 +64,7 @@
       '<div class="auth-toggle">' +
       '<div><strong>Share my wellness summary</strong>' +
       '<p class="muted">Lets them see a 7-day average (sleep, resting heart rate, SpO₂, steps, stress self-report) for context. They see it only while this is on — and never your chat history, requests or anything from home.</p></div>' +
-      '<label class="switch"><input type="checkbox" id="medic-auth" ' + (data.wellness_authorized ? "checked" : "") + '><span class="slider"></span><span class="sr-only">Share wellness summary</span></label>' +
+      '<label class="switch"><input type="checkbox" id="medic-auth" ' + (data.wellness_authorized ? "checked" : "") + '><span class="slider"></span><span class="visually-hidden">Share wellness summary</span></label>' +
       "</div></section>";
 
     /* Requests */
