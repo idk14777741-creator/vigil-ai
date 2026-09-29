@@ -31,6 +31,7 @@ def profile_public(p: dict) -> dict:
         "unit_id": p.get("unit_id"),
         "phone": p.get("phone", ""),
         "avatar_color": p.get("avatar_color", "teal"),
+        "language_preference": p.get("language_preference", "en"),
         "status": p.get("status", "active"),
         "created_at": p.get("created_at"),
     }
@@ -115,6 +116,7 @@ def register(body: dict, ctx: dict):
         "unit_id": None,
         "phone": "",
         "avatar_color": "teal",
+        "language_preference": (body.get("language_preference") or "en").strip().lower(),
         "status": "active",
         "created_at": data_store.now_iso(),
         "last_login_at": None,

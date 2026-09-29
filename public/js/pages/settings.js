@@ -47,6 +47,12 @@
 
       "</div><div class=\"col gap-6\">" +
 
+      '<section class="card"><div class="card-header"><h3>' + V.I18N.t("settings.language") + '</h3></div>' +
+      '<div class="field"><label for="lang-select">' + V.I18N.t("settings.language") + '</label>' +
+      '<select id="lang-select">' + V.I18N.optionsHtml(V.I18N.getLanguage()) + "</select>" +
+      '<span class="hint">' + V.I18N.t("settings.languageHint") + '</span>' +
+      '<span class="hint">' + V.I18N.t("settings.languageAiNote") + '</span></div></section>' +
+
       '<section class="card"><div class="card-header"><h3>Appearance</h3></div>' +
       '<div class="field"><label for="theme-select">Theme</label><select id="theme-select">' +
       '<option value="system">Match system</option><option value="light">Light</option><option value="dark">Dark</option>' +
@@ -68,6 +74,15 @@
     const themeSelect = el.querySelector("#theme-select");
     themeSelect.value = V.THEME.getTheme();
     themeSelect.addEventListener("change", function () { V.THEME.setTheme(themeSelect.value); });
+
+    // language selector — persists to profile + localStorage, re-renders shell via I18N.onChange
+    const langSelect = el.querySelector("#lang-select");
+    langSelect.value = V.I18N.getLanguage();
+    langSelect.addEventListener("change", function () {
+      V.I18N.setLanguage(langSelect.value).then(function (code) {
+        toast((V.I18N.LANGUAGES[code] || {}).native + " ✓", "success");
+      });
+    });
 
     // avatar color picker
     let color = user.avatar_color || "teal";

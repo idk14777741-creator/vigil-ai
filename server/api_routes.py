@@ -44,6 +44,9 @@ from security import hash_password, password_problem, sanitize_text, valid_email
 _VALID_ROLES = {"personnel", "medic", "supervisor", "admin"}
 _AVATAR_COLORS = {"teal", "blue", "violet", "amber", "rose", "green"}
 _PHONE_RE = re.compile(r"^[0-9+()\-\s]{0,20}$")
+# Language is a presentation preference only — validated against the shared
+# registry so it can never touch role, permissions or scoring.
+_LANGUAGES = {"en", "hi", "hinglish", "mr", "ta", "bn", "pa", "as"}
 
 
 def _res(status, payload, headers=None):
@@ -281,6 +284,11 @@ def update_me(profile, body, ctx):
         if color not in _AVATAR_COLORS:
             return _res(400, {"error": "Unknown avatar color."})
         patch["avatar_color"] = color
+    if "language_preference" in body:
+        lang = (body.get("language_preference") or "en").strip().lower()
+        if lang not in _LANGUAGES:
+            return _res(400, {"error": "Unknown language."})
+        patch["language_preference"] = lang
     if "unit_id" in body and body.get("unit_id") is not None:
         unit = data_store.find_one("units", lambda u: u["id"] == body.get("unit_id"))
         if not unit:

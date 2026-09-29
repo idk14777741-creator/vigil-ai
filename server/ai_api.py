@@ -102,7 +102,9 @@ def chat(profile, body, ctx):
             history = data_store.find("ai_messages", lambda m: m["conversation_id"] == conv["id"])
             history.sort(key=lambda m: m["created_at"])
             try:
-                reply = provider.complete(history[-8:])
+                # Language is presentation-only: it shapes the reply, never the
+                # data, scores or permissions the coach may reference.
+                reply = provider.complete(history[-8:], profile.get("language_preference", "en"))
             except Exception:
                 # Provider outage fallback — the assistant stays helpful.
                 reply = ("I couldn't reach my AI service just now, but I'm still here. "

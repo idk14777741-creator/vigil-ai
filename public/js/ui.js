@@ -16,27 +16,23 @@
   /* ---------- Formatting ---------- */
 
   function timeAgo(iso) {
+    // Delegates to the i18n layer (locale-aware + translated); falls back if i18n not loaded yet.
+    if (window.VIGIL && window.VIGIL.I18N) return window.VIGIL.I18N.timeAgo(iso);
     if (!iso) return "";
     const then = new Date(iso).getTime();
     if (isNaN(then)) return "";
-    const diff = Math.max(0, Date.now() - then);
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return mins + "m ago";
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return hrs + "h ago";
-    const days = Math.floor(hrs / 24);
-    if (days < 7) return days + "d ago";
     return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
 
   function fmtDate(iso, opts) {
     if (!iso) return "";
+    if (window.VIGIL && window.VIGIL.I18N) return window.VIGIL.I18N.fmtDate(iso, opts || { weekday: "short", month: "short", day: "numeric" });
     return new Date(iso).toLocaleDateString(undefined, opts || { weekday: "short", month: "short", day: "numeric" });
   }
 
   function fmtTime(iso) {
     if (!iso) return "";
+    if (window.VIGIL && window.VIGIL.I18N) return window.VIGIL.I18N.fmtTime(iso);
     return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   }
 
@@ -51,6 +47,7 @@
   }
 
   function roleLabel(role) {
+    if (window.VIGIL && window.VIGIL.I18N) return window.VIGIL.I18N.t("role." + role);
     return { personnel: "Personnel", medic: "Medic Officer", supervisor: "Supervisor", admin: "Administrator" }[role] || role;
   }
 
@@ -119,8 +116,8 @@
         size: "sm",
         body: '<p class="muted">' + esc(opts.message) + "</p>",
         footer:
-          '<button class="btn ghost" data-act="cancel">Cancel</button>' +
-          '<button class="btn ' + (opts.danger ? "danger" : "primary") + '" data-act="ok">' + esc(opts.confirmLabel || "Confirm") + "</button>",
+          '<button class="btn ghost" data-act="cancel">' + (window.VIGIL && window.VIGIL.I18N ? window.VIGIL.I18N.t("common.cancel") : "Cancel") + "</button>" +
+          '<button class="btn ' + (opts.danger ? "danger" : "primary") + '" data-act="ok">' + esc(opts.confirmLabel || (window.VIGIL && window.VIGIL.I18N ? window.VIGIL.I18N.t("common.confirm") : "Confirm")) + "</button>",
       });
       m.el.querySelector('[data-act="cancel"]').addEventListener("click", function () { m.close(); resolve(false); });
       m.el.querySelector('[data-act="ok"]').addEventListener("click", function () { m.close(); resolve(true); });
@@ -130,7 +127,8 @@
   /* ---------- Loading helpers ---------- */
 
   function loadingBlock(label) {
-    return '<div class="loading-block"><div class="spinner" role="status"></div><p>' + esc(label || "Loading…") + "</p></div>";
+    const fallback = window.VIGIL && window.VIGIL.I18N ? window.VIGIL.I18N.t("common.loading") : "Loading…";
+    return '<div class="loading-block"><div class="spinner" role="status"></div><p>' + esc(label || fallback) + "</p></div>";
   }
 
   function skeletonCard() {
@@ -200,7 +198,8 @@
   /* ---------- Misc ---------- */
 
   function demoChip(label) {
-    return '<span class="demo-chip" title="This data is simulated for demonstration and is not real medical data.">◐ ' + esc(label || "Demo · Simulated data") + "</span>";
+    const fallback = window.VIGIL && window.VIGIL.I18N ? window.VIGIL.I18N.t("common.demoSimulated") : "Demo · Simulated data";
+    return '<span class="demo-chip" title="This data is simulated for demonstration and is not real medical data.">◐ ' + esc(label || fallback) + "</span>";
   }
 
   function unreadDot(count) {

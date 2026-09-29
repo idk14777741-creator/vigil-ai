@@ -176,19 +176,18 @@
 
   function stressCard(st) {
     if (!st || !st.has_data) {
-      return '<section class="card"><div class="card-header"><h3>Stress Load Score</h3>' +
+      return '<section class="card"><div class="card-header"><h3>' + V.I18N.t("stress.title") + '</h3>' +
         demoChip("Demo · Simulated") + "</div>" +
-        '<p class="muted">Your Stress Load Score appears after a few days of shifts and readings. ' +
-        "It is a separate indicator from Recovery — it measures how much load you're under, not how restored you are.</p></section>";
+        '<p class="muted">' + V.I18N.t("stress.noData") + '</p></section>';
     }
     const bandCls = st.band === "high" ? "tone-danger" : st.band === "elevated" ? "tone-warning" : "tone-success";
 
-    let html = '<section class="card"><div class="card-header"><h3>Stress Load Score</h3>' +
+    let html = '<section class="card"><div class="card-header"><h3>' + V.I18N.t("stress.title") + '</h3>' +
       '<span class="badge ' + bandCls + '">' + esc(st.band_label) + "</span>" + demoChip("Demo · Simulated") + "</div>";
 
     html += '<div class="row gap-4 mt-2 wrap">' +
       '<div><div class="ind-value">' + st.score + '<span> / 100</span></div>' +
-      '<div class="s-meta">higher = more current load</div></div>' +
+      '<div class="s-meta">' + V.I18N.t("stress.higherMore") + '</div></div>' +
       '<p class="muted grow" style="max-width:480px">' + esc(st.summary) + "</p></div>";
 
     html += '<div class="factor-list mt-4">' + st.factor_meta.map(function (m) {
@@ -202,7 +201,7 @@
     }).join("") + "</div>";
 
     if (st.support && st.support.length) {
-      html += '<div class="eyebrow mb-2 mt-4">If you want support today</div><div class="insight-support">' +
+      html += '<div class="eyebrow mb-2 mt-4">' + V.I18N.t("stress.supportToday") + '</div><div class="insight-support">' +
         st.support.map(function (s) {
           return '<button class="support-opt as-btn" data-iv="' + s.engage + '"><span class="f-icon" aria-hidden="true">' + s.icon + "</span>" +
             '<span><span class="ins-title">' + esc(s.title) + "</span>" +

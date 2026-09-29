@@ -24,6 +24,40 @@ SYSTEM_PROMPT = (
     "Keep replies warm, brief (under 150 words), and end with something grounded and practical."
 )
 
+# Language behaviour (multilingual & inclusive support):
+#   - The user's selected language shapes HOW the assistant speaks, never WHAT
+#     it may access. Scores, permissions and data are untouched.
+#   - Hinglish is a natural conversational mode — mixed Hindi/English in Roman
+#     script — NOT formal Hindi and NOT a translation mode.
+#   - The user may write in any language; reply in their preferred language
+#     unless they explicitly ask for another.
+#   - Model quality varies by language; the prompt asks for natural output in
+#     the selected language without overclaiming capability (the UI says so).
+LANGUAGE_PROMPTS = {
+    "en": "",
+    "hi": ("Reply in natural Hindi (Devanagari script). "
+           "Keep technical terms like Recovery Score, Stress Score, Shift and Workload in "
+           "their commonly understood form. If the user writes in another language, still "
+           "reply in Hindi unless they ask otherwise. Never invent numbers — VIGIL's scores "
+           "come from the app, not from you."),
+    "hinglish": ("Reply in natural conversational Hinglish: Roman-script Hindi mixed with "
+           "English, the way Indian colleagues actually talk (e.g. 'Aaj shift ke baad kaafi "
+           "exhausted feel ho raha hai'). Understand mixed-language input freely — Hindi, "
+           "English, or both in one sentence. Stay warm and professional, not slang-heavy. "
+           "Never invent numbers — VIGIL's scores come from the app, not from you."),
+    "mr": "Reply in natural Marathi (Devanagari script). Keep VIGIL terms (Recovery Score, Shift, Workload) commonly understood. Never invent numbers.",
+    "ta": "Reply in natural Tamil (Tamil script). Keep VIGIL terms (Recovery Score, Shift, Workload) commonly understood. Never invent numbers.",
+    "bn": "Reply in natural Bengali (Bengali script). Keep VIGIL terms (Recovery Score, Shift, Workload) commonly understood. Never invent numbers.",
+    "pa": "Reply in natural Punjabi (Gurmukhi script). Keep VIGIL terms (Recovery Score, Shift, Workload) commonly understood. Never invent numbers.",
+    "as": "Reply in natural Assamese (Assamese/Bengali script). Keep VIGIL terms (Recovery Score, Shift, Workload) commonly understood. Never invent numbers.",
+}
+
+
+def system_prompt_for(language: str | None) -> str:
+    """System prompt including the language directive (English if unknown)."""
+    directive = LANGUAGE_PROMPTS.get((language or "en"), "")
+    return SYSTEM_PROMPT + (" " + directive if directive else "")
+
 
 class MockAIProvider:
     """Deterministic, supportive mock responses for demo mode."""
@@ -34,10 +68,15 @@ class MockAIProvider:
         "For everything else, I'm here to help you rest, plan, and reconnect with your support network."
     )
 
-    def complete(self, messages: list[dict]) -> str:
+    def complete(self, messages: list[dict], language: str = "en") -> str:
         last = messages[-1]["content"].lower() if messages else ""
         if any(k in last for k in ("emergency", "chest pain", "suicid", "self-harm", "overdose")):
             return self.SAFETY_REDIRECT
+        if any(k in last for k in ("stress", "anxious", "anxiety", "overwhelm")) and language == "hinglish":
+            return ("Pressure zyada lag rahi hai — samajh sakte hain. Abhi ke liye do minute ka "
+                    "breathing pause De-stress Zone mein try kariye, ek chhota walk, aur apne "
+                    "Stress Load factors dekhiye ki load kahan se aa raha hai. Agar pressure "
+                    "badhta hi jaye, toh Medic Officer aur supervisor dono ek tap door hain.")
         if any(k in last for k in ("stress", "anxious", "anxiety", "overwhelm")):
             return ("That sounds demanding. A few things that may help right now: a two-minute breathing "
                     "pause in the De-stress Zone, a short walk before your next block of work, and a look at "
@@ -48,10 +87,20 @@ class MockAIProvider:
                     "show what's draining you. Tonight, try dimming screens 30 minutes before bed and using the "
                     "Sleep mix in the De-stress Zone. If exhaustion persists across several days, consider a "
                     "quiet word with your Medic Officer.")
-        if any(k in last for k in ("task", "workload", "deadline", "organize", "organise")):
-            return ("Let's make the workload visible. Your task list can be sorted by deadline and priority — "
-                    "start with one small win to build momentum. If the load looks unbalanced, your supervisor "
-                    "connection is the right channel to rebalance it. You don't have to carry it silently.")
+        if any(k in last for k in ("exhaust", "tired", "thak", "sleep", "so ", "neend")) and language == "hinglish":
+            return ("Aaj kaafi heavy lag raha hai — rest bhi utna hi zaroori hai jaise kaam. "
+                    "Aapka Recovery Score aur sleep trend batayenge ki body ko kya chahiye. "
+                    "Aaj raat screens 30 minute pehle band karke De-stress Zone ka Sleep mix try kariye. "
+                    "Agar exhaustion lagataar bana rahe, toh Medic Officer se ek baat kar lena — "
+                    "reach out karna strength hai, weakness nahi.")
+        if any(k in last for k in ("task", "workload", "deadline", "organize", "organise", "kaam")) and language == "hinglish":
+            return ("Workload visible karna best hai. Task list ko deadline aur priority se sort kariye — "
+                    "ek chhoti jeet se shuru kariye. Agar load unbalanced lag raha ho, toh supervisor "
+                    "connection hi sahi channel hai. Aapko akele sab carry nahi karna.")
+        if language == "hinglish":
+            return ("Main yahan hoon. Main aapki Recovery Score samajhne, week ka summary, ek calming track "
+                    "dhoondhne, ya bas ek heavy din ke baare mein baat karne mein madad kar sakta hoon. "
+                    "Abhi kya sabse useful lagega?")
         return ("I'm here with you. I can help you understand your Recovery Score, summarise your week, "
                 "find a calming track, or simply think through a heavy day. What would feel most useful right now?")
 
@@ -66,10 +115,10 @@ class OpenAIProvider:
         self.model = model
         self.timeout = timeout
 
-    def complete(self, messages: list[dict]) -> str:
+    def complete(self, messages: list[dict], language: str = "en") -> str:
         payload = json.dumps({
             "model": self.model,
-            "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-12:],
+            "messages": [{"role": "system", "content": system_prompt_for(language)}] + messages[-12:],
             "max_tokens": 300,
             "temperature": 0.7,
         }).encode()
@@ -102,10 +151,10 @@ class AnthropicProvider:
         self.model = model
         self.timeout = timeout
 
-    def complete(self, messages: list[dict]) -> str:
+    def complete(self, messages: list[dict], language: str = "en") -> str:
         payload = json.dumps({
             "model": self.model,
-            "system": SYSTEM_PROMPT,
+            "system": system_prompt_for(language),
             "messages": messages[-12:],
             "max_tokens": 300,
         }).encode()

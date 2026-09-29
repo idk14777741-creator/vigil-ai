@@ -13,36 +13,36 @@
 
   const NAV = [
     { section: "Overview", items: [
-      { path: "/dashboard", label: "Dashboard", icon: "◆", roles: ["personnel", "supervisor", "medic", "admin"] },
-      { path: "/timeline", label: "Timeline", icon: "◍", roles: ["personnel"] },
+      { path: "/dashboard", labelKey: "nav.dashboard", icon: "◆", roles: ["personnel", "supervisor", "medic", "admin"] },
+      { path: "/timeline", labelKey: "nav.timeline", icon: "◍", roles: ["personnel"] },
     ]},
     { section: "Operational", items: [
-      { path: "/shifts", label: "Shift Monitor", icon: "◐", roles: ["personnel", "supervisor"] },
-      { path: "/tasks", label: "Tasks", icon: "☑", roles: ["personnel", "supervisor"] },
+      { path: "/shifts", labelKey: "nav.shifts", icon: "◐", roles: ["personnel", "supervisor"] },
+      { path: "/tasks", labelKey: "nav.tasks", icon: "☑", roles: ["personnel", "supervisor"] },
     ]},
     { section: "Wellbeing", items: [
-      { path: "/wellness", label: "Wellness Monitor", icon: "♡", roles: ["personnel"] },
-      { path: "/recovery", label: "Recovery Score", icon: "◉", roles: ["personnel"] },
-      { path: "/wellbeing", label: "Wellbeing Check-in", icon: "☰", roles: ["personnel"] },
-      { path: "/report", label: "Weekly Report", icon: "▤", roles: ["personnel"] },
-      { path: "/assistant", label: "VIGIL AI Assistant", icon: "✦", roles: ["personnel"] },
-      { path: "/destress", label: "De-stress Zone", icon: "♪", roles: ["personnel"] },
+      { path: "/wellness", labelKey: "nav.wellness", icon: "♡", roles: ["personnel"] },
+      { path: "/recovery", labelKey: "nav.recovery", icon: "◉", roles: ["personnel"] },
+      { path: "/wellbeing", labelKey: "nav.wellbeingCheckin", icon: "☰", roles: ["personnel"] },
+      { path: "/report", labelKey: "nav.report", icon: "▤", roles: ["personnel"] },
+      { path: "/assistant", labelKey: "nav.assistant", icon: "✦", roles: ["personnel"] },
+      { path: "/destress", labelKey: "nav.destress", icon: "♪", roles: ["personnel"] },
     ]},
-    { section: "Support network", items: [
-      { path: "/buddy", label: "Buddy Connect", icon: "⇄", roles: ["personnel"] },
-      { path: "/home", label: "Message From Home", icon: "⌂", roles: ["personnel"] },
-      { path: "/medic", label: "Medic Connection", icon: "✚", roles: ["personnel", "medic"] },
-      { path: "/supervisor", label: "Supervisor Connection", icon: "⚑", roles: ["personnel", "supervisor"] },
-      { path: "/incidents", label: "Incident Reporting", icon: "△", roles: ["personnel", "supervisor"] },
+    { section: "Support network", sectionKey: "nav.support", items: [
+      { path: "/buddy", labelKey: "nav.buddy", icon: "⇄", roles: ["personnel"] },
+      { path: "/home", labelKey: "nav.home", icon: "⌂", roles: ["personnel"] },
+      { path: "/medic", labelKey: "nav.medic", icon: "✚", roles: ["personnel", "medic"] },
+      { path: "/supervisor", labelKey: "nav.supervisor", icon: "⚑", roles: ["personnel", "supervisor"] },
+      { path: "/incidents", labelKey: "nav.incidents", icon: "△", roles: ["personnel", "supervisor"] },
     ]},
     { section: "Workspace", items: [
-      { path: "/offline", label: "Offline & Transfers", icon: "⇅", roles: ["personnel", "medic", "supervisor", "admin"] },
-      { path: "/notifications", label: "Notifications", icon: "◍", roles: ["personnel", "supervisor", "medic", "admin"] },
-      { path: "/team", label: "My Team", icon: "◎", roles: ["personnel", "supervisor", "medic", "admin"] },
-      { path: "/settings", label: "Settings", icon: "⚙", roles: ["personnel", "supervisor", "medic", "admin"] },
+      { path: "/offline", labelKey: "nav.offline", icon: "⇅", roles: ["personnel", "medic", "supervisor", "admin"] },
+      { path: "/notifications", labelKey: "nav.notifications", icon: "◍", roles: ["personnel", "supervisor", "medic", "admin"] },
+      { path: "/team", labelKey: "nav.team", icon: "◎", roles: ["personnel", "supervisor", "medic", "admin"] },
+      { path: "/settings", labelKey: "nav.settings", icon: "⚙", roles: ["personnel", "supervisor", "medic", "admin"] },
     ]},
     { section: "Administration", items: [
-      { path: "/admin", label: "Admin Panel", icon: "▣", roles: ["admin"] },
+      { path: "/admin", labelKey: "nav.admin", icon: "▣", roles: ["admin"] },
     ]},
   ];
 
@@ -52,6 +52,7 @@
 
   async function boot() {
     V.THEME.initTheme();
+    V.I18N.init();
     if (V.Offline) {
       V.Offline.init();
       V.Offline.onChange(paintConnChip);
@@ -59,12 +60,21 @@
     window.addEventListener("hashchange", renderRoute);
     window.addEventListener("offline", updateOfflineBanner);
     window.addEventListener("online", updateOfflineBanner);
+    // Language is presentation-only: re-render the shell + current page in place.
+    V.I18N.onChange(function () {
+      if (V.STORE.getState().user) renderShell();
+      renderRoute();
+    });
 
     try {
       const me = await V.API.endpoints.me();
       V.STORE.setUser(me.user);
       V.STORE.setUnread(me.unread_notifications || 0);
       V.STORE.setMeta(me.mode, me.version);
+      // Profile language preference wins over the localStorage mirror.
+      if (me.user && me.user.language_preference) {
+        V.I18N.init(me.user.language_preference);
+      }
     } catch (e) {
       V.STORE.clearSession();
     }
@@ -117,11 +127,11 @@
     return NAV.map(function (group) {
       const items = group.items.filter(function (it) { return !it.roles || it.roles.indexOf(user.role) !== -1; });
       if (!items.length) return "";
-      return '<div class="nav-section"><div class="eyebrow">' + esc(group.section) + "</div></div>" +
+      return '<div class="nav-section"><div class="eyebrow">' +      esc(V.I18N.t(group.sectionKey || ("nav." + group.section.toLowerCase()))) + "</div></div>" +
         items.map(function (it) {
           return '<a class="nav-item" data-nav="' + it.path + '" href="#' + it.path + '">' +
             '<span class="n-icon" aria-hidden="true">' + it.icon + "</span>" +
-            "<span>" + esc(it.label) + "</span>" +
+            "<span>" + esc(it.labelKey ? V.I18N.t(it.labelKey) : it.label) + "</span>" +
             (it.path === "/notifications" ? V.UI.unreadDot(state.unread) : "") +
             (it.phase ? '<span class="badge tone-brand right" title="Coming in Phase ' + it.phase + '">P' + it.phase + "</span>" : "") +
             "</a>";
@@ -143,7 +153,7 @@
       '<circle cx="16" cy="13.5" r="2.4" fill="currentColor"/>' +
       '<path d="M16 16.5v5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></div>' +
       "<div><div class=\"brand-name\">VIGIL AI</div>" +
-      '<div class="brand-tag">Someone is looking out for you</div></div></div>' +
+      '<div class="brand-tag">' + esc(V.I18N.t("shell.tagline")) + "</div></div></div>" +
       '<nav class="sidebar-nav" id="side-nav">' + navItemsHtml() + "</nav>" +
       '<div class="sidebar-foot"><div class="row">' + avatarHtml(user) +
       '<div class="grow" style="min-width:0">' +
